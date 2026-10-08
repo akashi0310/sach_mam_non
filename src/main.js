@@ -30,7 +30,7 @@ const state = {
   selectedFormat: 'all',
   searchQuery: '',
   sortBy: 'featured',
-  activeModal: null, // 'detail', 'cart', 'auth', 'admin', 'supabase-settings', 'game', 'generator', 'checkout-qr'
+  activeModal: null, // 'detail', 'cart', 'auth', 'admin', 'material-editor', 'supabase-settings', 'game', 'generator', 'checkout-qr'
   selectedWorksheet: WORKSHEETS[0],
   activePreviewPageIndex: 0,
   voucherCode: '',
@@ -40,7 +40,9 @@ const state = {
   gameTargetShape: 'circle',
   authMode: 'login', // 'login' or 'signup'
   liveWorksheets: [...WORKSHEETS],
-  adminUsersList: []
+  adminUsersList: [],
+  editingMaterial: null,
+  adminEditorMode: 'create' // 'create' or 'edit'
 };
 
 // Utilities
@@ -54,7 +56,25 @@ async function loadProductionData() {
   try {
     const materials = await dataService.getMaterials();
     if (materials && materials.length > 0) {
-      state.liveWorksheets = materials;
+      state.liveWorksheets = materials.map(m => ({
+        id: m.id || m.slug,
+        title: m.title,
+        price: m.price !== undefined ? m.price : 0,
+        age: m.age_range_label || m.age || (m.grade_level ? `${m.grade_level} tuổi` : '3 - 5 tuổi'),
+        ageId: m.grade_level || m.ageId || '3-4',
+        category: m.category_id || m.category || 'tao-hinh',
+        pages: m.page_count || m.pages || 1,
+        format: m.format_type || m.format || 'PDF (Chất lượng in cao)',
+        coverImage: m.preview_image_url || m.coverImage || './assets/misa_bear.jpg',
+        description: m.description || '',
+        pdfUrl: m.file_pdf_url || m.pdfUrl || '',
+        rating: Number(m.rating) || 5.0,
+        downloads: m.download_count || m.downloads || 0,
+        isFreeSample: m.is_free_sample || m.price === 0,
+        previewPages: m.preview_pages && m.preview_pages.length > 0 
+          ? m.preview_pages 
+          : [{ id: 1, image: m.preview_image_url || m.coverImage || './assets/misa_bear.jpg' }]
+      }));
       renderCatalog();
     }
   } catch (e) {
@@ -115,6 +135,12 @@ function renderHeader() {
           </button>
         </div>
 
+        ${user.role === 'admin' ? `
+          <button class="btn-admin-header-pill" id="btn-quick-new-material" title="Đăng bán học liệu mới lên website">
+            ✨ + Đăng Học Liệu
+          </button>
+        ` : ''}
+
         ${user.role === 'guest' ? `
           <div style="display: flex; gap: 8px;">
             <button class="btn-login" style="background: #FFFFFF; color: var(--primary); border: 2px solid var(--primary); box-shadow: none;" id="btn-header-login">
@@ -133,10 +159,13 @@ function renderHeader() {
                 ${user.role.toUpperCase()}
               </span>
             </div>
-            <div class="nav-dropdown-menu" style="right: 0; left: auto; min-width: 200px;">
+            <div class="nav-dropdown-menu" style="right: 0; left: auto; min-width: 220px;">
               ${user.role === 'admin' ? `
                 <div class="nav-dropdown-item" id="menu-open-admin-panel" style="color: #EF4444; font-weight: 800;">
                   🛡️ Bảng điều khiển Quản trị
+                </div>
+                <div class="nav-dropdown-item" id="menu-quick-add-material" style="color: #F59E0B; font-weight: 800;">
+                  ➕ Đăng học liệu mới
                 </div>
               ` : ''}
               <div class="nav-dropdown-item" id="menu-my-downloads">
@@ -336,6 +365,9 @@ function renderEducationSuite() {
 // CATALOG & SIDEBAR FILTER
 // ====================================================================
 function renderCatalog() {
+  const user = authService.getUser();
+  const isAdmin = user && user.role === 'admin';
+
   const activeCatObj = CATEGORIES.find(c => c.id === state.activeCategory);
   const catalogTitle = activeCatObj ? activeCatObj.name : 'Tất cả học liệu mầm non';
   const catalogDesc = activeCatObj ? activeCatObj.description : 'Các hoạt động tô màu, vẽ, xé dán, tạo hình giúp trẻ phát triển óc sáng tạo, khả năng quan sát và vận động tinh.';
@@ -422,6 +454,20 @@ function renderCatalog() {
 
         <!-- MAIN WORKSHEET GRID -->
         <main class="catalog-main-content">
+          ${isAdmin ? `
+            <div class="admin-catalog-banner">
+              <div class="admin-banner-info">
+                <span class="admin-banner-badge">👑 QUẢN TRỊ VIÊN</span>
+                <span class="admin-banner-text">
+                  Bạn có toàn quyền <strong>Đăng bán mới</strong>, <strong>Chỉnh sửa thông tin/giá</strong>, hoặc <strong>Gỡ bỏ</strong> học liệu trực tiếp.
+                </span>
+              </div>
+              <button class="hero-cta-btn btn-admin-banner-btn" id="btn-banner-add-material">
+                ➕ Đăng Bán Học Liệu Mới
+              </button>
+            </div>
+          ` : ''}
+
           <div class="catalog-toolbar">
             <span class="results-count-text">Hiển thị 1–${filtered.length} học liệu chất lượng cao</span>
             
@@ -447,6 +493,15 @@ function renderCatalog() {
             <div class="worksheets-grid">
               ${filtered.map(ws => `
                 <div class="worksheet-card" data-worksheet-id="${ws.id}">
+                  ${isAdmin ? `
+                    <div class="admin-card-badge-row">
+                      <span class="admin-manage-tag">👑 Admin</span>
+                      <div class="admin-card-btn-group">
+                        <button class="btn-card-edit" data-admin-edit-mat="${ws.id}" title="Chỉnh sửa thông tin & giá">✏️ Sửa</button>
+                        <button class="btn-card-del" data-admin-del-mat="${ws.id}" title="Gỡ học liệu khỏi website">🗑️ Gỡ bán</button>
+                      </div>
+                    </div>
+                  ` : ''}
                   <div class="worksheet-thumb-frame" data-open-detail="${ws.id}">
                     <img src="${ws.coverImage || ws.preview_image_url || './assets/misa_bear.jpg'}" alt="${ws.title}" loading="lazy" />
                     <div class="card-quick-preview-overlay">
@@ -589,6 +644,76 @@ function renderFooter() {
 // ====================================================================
 // MODALS SYSTEM (PRODUCTION DETAIL, CART, REAL AUTH, ADMIN DASHBOARD)
 // ====================================================================
+function attachMaterialEditorListeners() {
+  const titleInp = document.getElementById('ed-title');
+  const priceInp = document.getElementById('ed-price');
+  const ageInp = document.getElementById('ed-age');
+  const pagesInp = document.getElementById('ed-pages');
+  const coverInp = document.getElementById('ed-cover-url');
+  const fileUpload = document.getElementById('ed-file-upload');
+
+  const prevTitle = document.getElementById('prev-card-title');
+  const prevPrice = document.getElementById('prev-card-price');
+  const prevAge = document.getElementById('prev-card-age');
+  const prevPages = document.getElementById('prev-card-pages');
+  const prevImg = document.getElementById('prev-card-img');
+
+  const updatePreview = () => {
+    if (prevTitle && titleInp) prevTitle.innerText = titleInp.value || 'Tiêu đề học liệu mới';
+    if (prevPrice && priceInp) {
+      const p = parseInt(priceInp.value, 10) || 0;
+      prevPrice.innerText = formatVND(p);
+      if (p === 0) prevPrice.classList.add('free');
+      else prevPrice.classList.remove('free');
+    }
+    if (prevAge && ageInp) {
+      const opt = ageInp.options[ageInp.selectedIndex];
+      prevAge.innerText = opt ? opt.text.split('(')[0].trim() : '3 - 5 tuổi';
+    }
+    if (prevPages && pagesInp) prevPages.innerText = (pagesInp.value || 1) + ' trang';
+    if (prevImg && coverInp) prevImg.src = coverInp.value || './assets/misa_bear.jpg';
+  };
+
+  titleInp?.addEventListener('input', updatePreview);
+  priceInp?.addEventListener('input', updatePreview);
+  ageInp?.addEventListener('change', updatePreview);
+  pagesInp?.addEventListener('input', updatePreview);
+  coverInp?.addEventListener('input', updatePreview);
+
+  fileUpload?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (loadEvt) => {
+        const dataUrl = loadEvt.target.result;
+        if (coverInp) coverInp.value = dataUrl;
+        if (prevImg) prevImg.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  document.querySelectorAll('.preset-cover-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const src = btn.getAttribute('data-cover-src');
+      if (coverInp) coverInp.value = src;
+      if (prevImg) prevImg.src = src;
+      document.querySelectorAll('.preset-cover-chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  document.querySelectorAll('[data-set-price]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = btn.getAttribute('data-set-price');
+      if (priceInp) {
+        priceInp.value = val;
+        updatePreview();
+      }
+    });
+  });
+}
+
 function renderModals() {
   const container = document.getElementById('modals-container');
   if (!state.activeModal) {
@@ -597,6 +722,199 @@ function renderModals() {
   }
 
   const user = authService.getUser();
+
+  // 0. ADMIN MATERIAL EDITOR MODAL (THÊM MỚI & CHỈNH SỬA HỌC LIỆU TRỰC TIẾP)
+  if (state.activeModal === 'material-editor') {
+    const isEdit = state.adminEditorMode === 'edit';
+    const mat = state.editingMaterial || {
+      id: '',
+      title: '',
+      price: 15000,
+      age: '3 - 5 tuổi',
+      ageId: '3-4',
+      category: 'tao-hinh',
+      pages: 1,
+      format: 'PDF (Chất lượng in cao)',
+      coverImage: './assets/misa_bear.jpg',
+      description: '',
+      pdfUrl: ''
+    };
+
+    container.innerHTML = `
+      <div class="modal-backdrop" id="modal-backdrop-click">
+        <div class="modal-sheet" style="max-width: 940px; padding: 26px;">
+          <button class="modal-close-x" id="modal-close-btn">✕</button>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; border-bottom: 2px solid #F1F5F9; padding-bottom: 14px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 32px;">${isEdit ? '✏️' : '✨'}</span>
+              <div>
+                <h3 style="font-family: var(--font-heading); font-size: 22px; font-weight: 800; color: var(--text-main); margin: 0;">
+                  ${isEdit ? 'Chỉnh Sửa Học Liệu Đang Bán' : 'Đăng Bán Học Liệu Mới Lên Website'}
+                </h3>
+                <p style="font-size: 13px; color: var(--text-muted); margin: 3px 0 0 0;">
+                  ${isEdit ? 'Cập nhật nhanh giá bán, tiêu đề, ảnh bìa hoặc file học liệu' : 'Đăng sản phẩm mới cực kỳ đơn giản, tự động hiển thị lung linh chuẩn Education.com'}
+                </p>
+              </div>
+            </div>
+            <span class="admin-banner-badge">👑 ADMIN</span>
+          </div>
+
+          <form id="form-material-editor" style="display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 24px;">
+            <!-- CỘT TRÁI: FORM NHẬP LIỆU -->
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+              <div>
+                <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 5px;">
+                  1. Tiêu đề học liệu: <span style="color:#EF4444">*</span>
+                </label>
+                <input type="text" id="ed-title" required class="voucher-input" style="width: 100%; font-size: 14px; font-weight: 700;" 
+                  value="${mat.title || ''}" placeholder="VD: Bé tập đếm số 1-10 & Tô màu chiếc thuyền" />
+              </div>
+
+              <!-- GIÁ BÁN & CHIP CHỌN NHANH -->
+              <div>
+                <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 5px;">
+                  2. Giá bán (VNĐ): <span style="color:#EF4444">*</span>
+                </label>
+                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                  <input type="number" id="ed-price" min="0" step="1000" required class="voucher-input" style="width: 150px; font-size: 16px; font-weight: 800; color: var(--secondary);" 
+                    value="${mat.price !== undefined ? mat.price : 15000}" />
+                  <span style="font-size: 12px; color: var(--text-muted);">(Điền 0 nếu tặng miễn phí)</span>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button type="button" class="chip-btn" data-set-price="0">0đ Miễn phí</button>
+                  <button type="button" class="chip-btn" data-set-price="10000">10.000đ</button>
+                  <button type="button" class="chip-btn" data-set-price="15000">15.000đ</button>
+                  <button type="button" class="chip-btn" data-set-price="25000">25.000đ</button>
+                  <button type="button" class="chip-btn" data-set-price="50000">50.000đ</button>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div>
+                  <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 5px;">3. Độ tuổi bé:</label>
+                  <select id="ed-age" class="sort-dropdown" style="width: 100%; padding: 9px;">
+                    <option value="3-4" ${mat.ageId === '3-4' || mat.grade_level === '3-4' ? 'selected' : ''}>3 - 4 tuổi (Mầm)</option>
+                    <option value="4-5" ${mat.ageId === '4-5' || mat.grade_level === '4-5' ? 'selected' : ''}>4 - 5 tuổi (Chồi)</option>
+                    <option value="5-6" ${mat.ageId === '5-6' || mat.grade_level === '5-6' ? 'selected' : ''}>5 - 6 tuổi (Lá)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 5px;">4. Danh mục:</label>
+                  <select id="ed-category" class="sort-dropdown" style="width: 100%; padding: 9px;">
+                    <option value="tao-hinh" ${mat.category === 'tao-hinh' || mat.category_id === 'tao-hinh' ? 'selected' : ''}>Tạo hình (Tô màu - Vẽ)</option>
+                    <option value="toan-hoc" ${mat.category === 'toan-hoc' || mat.category_id === 'toan-hoc' ? 'selected' : ''}>Làm quen toán</option>
+                    <option value="chu-cai" ${mat.category === 'chu-cai' || mat.category_id === 'chu-cai' ? 'selected' : ''}>Làm quen chữ cái</option>
+                    <option value="the-gioi" ${mat.category === 'the-gioi' || mat.category_id === 'the-gioi' ? 'selected' : ''}>Thế giới xung quanh</option>
+                    <option value="ky-nang" ${mat.category === 'ky-nang' || mat.category_id === 'ky-nang' ? 'selected' : ''}>Kỹ năng sống</option>
+                    <option value="tong-hop" ${mat.category === 'tong-hop' || mat.category_id === 'tong-hop' ? 'selected' : ''}>Bộ chủ đề tổng hợp</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- CHỌN ẢNH BÌA SẢN PHẨM -->
+              <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: var(--radius-md); padding: 12px;">
+                <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 6px;">
+                  5. Chọn ảnh bìa học liệu:
+                </label>
+                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">
+                  Chọn nhanh 1 trong các ảnh mẫu tuyệt đẹp có sẵn:
+                </div>
+                <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+                  <button type="button" class="preset-cover-chip" data-cover-src="./assets/misa_bear.jpg">
+                    <img src="./assets/misa_bear.jpg" style="width: 32px; height: 32px; border-radius: 4px; object-fit: cover;" />
+                    <span>🐻 Gấu Misa</span>
+                  </button>
+                  <button type="button" class="preset-cover-chip" data-cover-src="./assets/animals_pack.jpg">
+                    <img src="./assets/animals_pack.jpg" style="width: 32px; height: 32px; border-radius: 4px; object-fit: cover;" />
+                    <span>🦁 Động vật</span>
+                  </button>
+                  <button type="button" class="preset-cover-chip" data-cover-src="./assets/hero_girl.jpg">
+                    <img src="./assets/hero_girl.jpg" style="width: 32px; height: 32px; border-radius: 4px; object-fit: cover;" />
+                    <span>👧 Bé khám phá</span>
+                  </button>
+                </div>
+
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="text" id="ed-cover-url" class="voucher-input" style="flex: 1; font-size: 12px;" 
+                    value="${mat.coverImage || mat.preview_image_url || './assets/misa_bear.jpg'}" 
+                    placeholder="Link ảnh hoặc chọn từ máy..." />
+                  
+                  <label class="voucher-btn" style="cursor: pointer; padding: 9px 12px; font-size: 12px; white-space: nowrap; background: #fff; font-weight: 700;">
+                    📁 Tải ảnh từ máy
+                    <input type="file" id="ed-file-upload" accept="image/*" style="display: none;" />
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 5px;">
+                  6. Mô tả học liệu & Mục tiêu rèn luyện cho bé:
+                </label>
+                <textarea id="ed-desc" class="voucher-input" style="width: 100%; height: 60px; font-size: 13px;" 
+                  placeholder="Giúp bé rèn luyện quan sát, nhận biết hình khối và rèn luyện kỹ năng cầm bút...">${mat.description || ''}</textarea>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 110px 1fr; gap: 10px;">
+                <div>
+                  <label style="font-size: 12px; font-weight: 700; display: block; margin-bottom: 4px;">Số trang:</label>
+                  <input type="number" id="ed-pages" min="1" max="100" class="voucher-input" style="width: 100%;" 
+                    value="${mat.pages || mat.page_count || 1}" />
+                </div>
+                <div>
+                  <label style="font-size: 12px; font-weight: 700; display: block; margin-bottom: 4px;">Link tệp PDF tải về:</label>
+                  <input type="text" id="ed-pdf-url" class="voucher-input" style="width: 100%; font-size: 12px;" 
+                    value="${mat.file_pdf_url || mat.pdfUrl || ''}" placeholder="Link Drive/PDF (để trống sẽ dùng tài liệu mặc định)" />
+                </div>
+              </div>
+            </div>
+
+            <!-- CỘT PHẢI: KHUNG XEM TRƯỚC SỐNG ĐỘNG (LIVE PREVIEW) -->
+            <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: var(--radius-lg); padding: 18px; display: flex; flex-direction: column; align-items: center; justify-content: space-between;">
+              <div style="width: 100%;">
+                <div style="font-size: 12px; font-weight: 800; color: var(--primary); text-transform: uppercase; margin-bottom: 12px; text-align: center; letter-spacing: 0.5px;">
+                  👁️ Xem trước hiển thị trên website
+                </div>
+
+                <div class="worksheet-card" style="box-shadow: var(--shadow-md); margin: 0 auto; max-width: 260px; background: #fff; pointer-events: none;">
+                  <div class="worksheet-thumb-frame" style="height: 185px;">
+                    <img id="prev-card-img" src="${mat.coverImage || mat.preview_image_url || './assets/misa_bear.jpg'}" style="width:100%; height:100%; object-fit:cover;" />
+                  </div>
+                  <h4 class="worksheet-card-title" id="prev-card-title" style="padding: 10px 12px 4px 12px; font-size: 14px; min-height: 42px;">
+                    ${mat.title || 'Tiêu đề học liệu mới'}
+                  </h4>
+                  <div class="worksheet-card-meta" style="padding: 0 12px; font-size: 12px;">
+                    <span id="prev-card-pages">${mat.pages || mat.page_count || 1} trang</span>
+                    <span>•</span>
+                    <span id="prev-card-age">${mat.age || mat.age_range_label || '3 - 5 tuổi'}</span>
+                  </div>
+                  <div class="worksheet-card-bottom" style="padding: 10px 12px 14px 12px;">
+                    <span class="worksheet-card-price" id="prev-card-price" style="font-size: 16px;">
+                      ${formatVND(mat.price !== undefined ? mat.price : 15000)}
+                    </span>
+                    <span style="font-size: 11px; background: #ECFDF5; color: #10B981; padding: 2px 8px; border-radius: 9999px; font-weight: 800;">
+                      ⭐ 5.0
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="width: 100%; margin-top: 18px; display: flex; flex-direction: column; gap: 8px;">
+                <button type="submit" class="hero-cta-btn" id="btn-save-mat" style="width: 100%; padding: 12px; font-size: 14px; text-align: center; justify-content: center;">
+                  ${isEdit ? '💾 Cập Nhật Sản Phẩm' : '✨ Đăng Bán Lên Website Ngay'}
+                </button>
+                <button type="button" class="voucher-btn" id="btn-cancel-mat" style="width: 100%; padding: 9px; text-align: center;">
+                  Hủy bỏ
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+    setTimeout(attachMaterialEditorListeners, 50);
+    return;
+  }
 
   // 1. PRODUCT DETAIL MODAL
   if (state.activeModal === 'detail') {
@@ -1326,9 +1644,48 @@ function bindEvents() {
     }
 
     // Close modal
-    if (e.target.id === 'modal-backdrop-click' || e.target.closest('#modal-close-btn') || e.target.closest('#modal-close-btn-2')) {
+    if (e.target.id === 'modal-backdrop-click' || e.target.closest('#modal-close-btn') || e.target.closest('#modal-close-btn-2') || e.target.id === 'btn-cancel-mat') {
       state.activeModal = null;
       renderModals();
+      return;
+    }
+
+    // Admin Open Create Material Modal
+    if (e.target.closest('#btn-quick-new-material') || e.target.closest('#btn-banner-add-material') || e.target.closest('#btn-show-add-material-form') || e.target.closest('#menu-quick-add-material')) {
+      state.editingMaterial = null;
+      state.adminEditorMode = 'create';
+      state.activeModal = 'material-editor';
+      renderModals();
+      return;
+    }
+
+    // Admin Edit Material
+    const editMat = e.target.closest('[data-admin-edit-mat]');
+    if (editMat) {
+      const id = editMat.getAttribute('data-admin-edit-mat');
+      const found = state.liveWorksheets.find(w => w.id === id);
+      if (found) {
+        state.editingMaterial = found;
+        state.adminEditorMode = 'edit';
+        state.activeModal = 'material-editor';
+        renderModals();
+      }
+      return;
+    }
+
+    // Admin Delete / Gỡ bán Material
+    const delMat = e.target.closest('[data-admin-del-mat]') || e.target.closest('[data-delete-material]');
+    if (delMat) {
+      const id = delMat.getAttribute('data-admin-del-mat') || delMat.getAttribute('data-delete-material');
+      const found = state.liveWorksheets.find(w => w.id === id);
+      const title = found ? found.title : 'học liệu này';
+      if (confirm(`Bạn có chắc chắn muốn gỡ bán "${title}" khỏi website?`)) {
+        dataService.deleteMaterial(id).catch(e => console.warn(e));
+        state.liveWorksheets = state.liveWorksheets.filter(w => w.id !== id);
+        showToast(`Đã gỡ bán "${title}" thành công!`);
+        renderCatalog();
+        renderModals();
+      }
       return;
     }
 
@@ -1575,24 +1932,6 @@ function bindEvents() {
       return;
     }
 
-    // Admin Delete Material
-    const delMat = e.target.closest('[data-delete-material]');
-    if (delMat) {
-      const id = delMat.getAttribute('data-delete-material');
-      if (confirm('Bạn có chắc chắn muốn xóa học liệu này khỏi hệ thống?')) {
-        try {
-          await dataService.deleteMaterial(id);
-          state.liveWorksheets = state.liveWorksheets.filter(w => w.id !== id);
-          showToast('Đã xóa học liệu thành công!');
-          renderCatalog();
-          renderModals();
-        } catch (err) {
-          showToast('Lỗi khi xóa học liệu: ' + err.message);
-        }
-      }
-      return;
-    }
-
     // Copy SQL
     if (e.target.id === 'btn-copy-sql') {
       navigator.clipboard.writeText(`-- SCHEMA SUPABASE HỌC LIỆU MẦM NON
@@ -1745,37 +2084,116 @@ CREATE TABLE materials (id UUID PRIMARY KEY, title TEXT, price INT);`);
       }
     }
 
-    // Form submit: Admin Add Material
-    if (e.target.id === 'form-create-material') {
+    // Form submit: Admin Material Editor (Đăng bán mới & Chỉnh sửa học liệu)
+    if (e.target.id === 'form-material-editor' || e.target.id === 'form-create-material') {
       e.preventDefault();
-      const title = document.getElementById('new-mat-title').value;
-      const price = parseInt(document.getElementById('new-mat-price').value, 10);
-      const grade = document.getElementById('new-mat-age').value;
-      const cat = document.getElementById('new-mat-category').value;
-      const desc = document.getElementById('new-mat-desc').value;
+      const title = (document.getElementById('ed-title') || document.getElementById('new-mat-title'))?.value?.trim();
+      const price = parseInt((document.getElementById('ed-price') || document.getElementById('new-mat-price'))?.value, 10) || 0;
+      const ageId = (document.getElementById('ed-age') || document.getElementById('new-mat-age'))?.value || '3-4';
+      const catId = (document.getElementById('ed-category') || document.getElementById('new-mat-category'))?.value || 'tao-hinh';
+      const coverUrl = document.getElementById('ed-cover-url')?.value?.trim() || './assets/misa_bear.jpg';
+      const desc = (document.getElementById('ed-desc') || document.getElementById('new-mat-desc'))?.value?.trim() || '';
+      const pages = parseInt(document.getElementById('ed-pages')?.value, 10) || 1;
+      const pdfUrl = document.getElementById('ed-pdf-url')?.value?.trim() || '';
 
-      const newMat = {
-        title,
-        price,
-        grade_level: grade,
-        category_id: cat,
-        description: desc,
-        preview_image_url: './assets/misa_bear.jpg',
-        page_count: 1,
-        format_type: 'PDF (Chất lượng in)',
-        slug: 'mat-' + Date.now(),
-        is_free_sample: price === 0
+      const ageLabelMap = {
+        '3-4': '3 - 4 tuổi (Mầm)',
+        '4-5': '4 - 5 tuổi (Chồi)',
+        '5-6': '5 - 6 tuổi (Lá)'
       };
 
-      try {
-        const created = await dataService.createMaterial(newMat);
-        state.liveWorksheets.unshift(created || newMat);
-        showToast('Đã thêm học liệu mới thành công lên Supabase!');
-        document.getElementById('add-material-form-box').style.display = 'none';
-        renderCatalog();
-        renderModals();
-      } catch (err) {
-        showToast('Lỗi thêm học liệu: ' + err.message);
+      if (state.adminEditorMode === 'create' || e.target.id === 'form-create-material') {
+        const newMat = {
+          title,
+          price,
+          grade_level: ageId,
+          age_range_label: ageLabelMap[ageId] || '3 - 5 tuổi',
+          category_id: catId,
+          page_count: pages,
+          format_type: 'PDF (Chất lượng in cao)',
+          preview_image_url: coverUrl,
+          file_pdf_url: pdfUrl,
+          description: desc,
+          is_free_sample: price === 0,
+          rating: 5.0,
+          rating_count: 1,
+          download_count: 0
+        };
+
+        try {
+          dataService.createMaterial(newMat).catch(e => console.warn('Lưu Supabase:', e));
+
+          const fullMat = {
+            id: 'hl-mat-' + Date.now(),
+            title: newMat.title,
+            price: newMat.price,
+            age: newMat.age_range_label,
+            ageId: newMat.grade_level,
+            category: newMat.category_id,
+            pages: newMat.page_count,
+            format: newMat.format_type,
+            coverImage: newMat.preview_image_url,
+            description: newMat.description,
+            pdfUrl: newMat.file_pdf_url,
+            rating: 5.0,
+            reviewsCount: 1,
+            downloads: 0,
+            isFreeSample: newMat.is_free_sample,
+            previewPages: [{ id: 1, image: newMat.preview_image_url }]
+          };
+
+          state.liveWorksheets.unshift(fullMat);
+          state.activeModal = null;
+          renderCatalog();
+          renderModals();
+          triggerConfetti();
+          showToast('🎉 Đã đăng bán học liệu mới thành công lên website!');
+        } catch (err) {
+          showToast('Lỗi khi đăng học liệu: ' + err.message);
+        }
+      } else if (state.adminEditorMode === 'edit') {
+        const editId = state.editingMaterial?.id;
+        const updatedPayload = {
+          title,
+          price,
+          grade_level: ageId,
+          age_range_label: ageLabelMap[ageId] || '3 - 5 tuổi',
+          category_id: catId,
+          page_count: pages,
+          preview_image_url: coverUrl,
+          file_pdf_url: pdfUrl,
+          description: desc,
+          is_free_sample: price === 0
+        };
+
+        try {
+          dataService.updateMaterial(editId, updatedPayload).catch(e => console.warn('Cập nhật Supabase:', e));
+
+          const idx = state.liveWorksheets.findIndex(w => w.id === editId);
+          if (idx !== -1) {
+            state.liveWorksheets[idx] = {
+              ...state.liveWorksheets[idx],
+              title,
+              price,
+              age: ageLabelMap[ageId] || '3 - 5 tuổi',
+              ageId,
+              category: catId,
+              pages,
+              coverImage: coverUrl,
+              description: desc,
+              pdfUrl,
+              isFreeSample: price === 0
+            };
+          }
+
+          state.activeModal = null;
+          renderCatalog();
+          renderModals();
+          triggerConfetti();
+          showToast('✅ Đã cập nhật thông tin học liệu thành công!');
+        } catch (err) {
+          showToast('Lỗi khi cập nhật học liệu: ' + err.message);
+        }
       }
     }
   });

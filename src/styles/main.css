@@ -2105,3 +2105,169 @@ img {
   .cart-item-row { grid-template-columns: 50px 1fr 80px; gap: 8px; }
   .cart-item-row .qty-counter, .cart-item-row .cart-item-delete { grid-column: span 3; }
 }
+
+/* ====================================================================
+   ADMIN WORKFLOW: PRODUCT UPLOAD & MANAGEMENT STYLES
+   ==================================================================== */
+.btn-admin-header-pill {
+  background: linear-gradient(135deg, #FF637D 0%, #F59E0B 100%);
+  color: #FFFFFF;
+  border: none;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(255, 99, 125, 0.35);
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-admin-header-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 99, 125, 0.45);
+}
+
+.admin-catalog-banner {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FEE2E2 100%);
+  border: 1.5px solid #FCD34D;
+  border-radius: var(--radius-lg);
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.12);
+}
+
+.admin-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-banner-badge {
+  background: #DC2626;
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.admin-banner-text {
+  font-size: 13px;
+  color: #78350F;
+}
+
+.btn-admin-banner-btn {
+  padding: 8px 18px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Thao tác trực tiếp trên từng thẻ sản phẩm */
+.admin-card-badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #FFFBEB;
+  border-bottom: 1px dashed #FDE68A;
+  padding: 6px 10px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.admin-manage-tag {
+  font-size: 10px;
+  font-weight: 800;
+  color: #B45309;
+  text-transform: uppercase;
+  background: #FEF3C7;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.admin-card-btn-group {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-card-edit {
+  background: #EFF6FF;
+  color: #2563EB;
+  border: 1px solid #BFDBFE;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-card-edit:hover {
+  background: #2563EB;
+  color: #FFFFFF;
+}
+
+.btn-card-del {
+  background: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-card-del:hover {
+  background: #DC2626;
+  color: #FFFFFF;
+}
+
+/* Modal form controls */
+.chip-btn {
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.chip-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: #FFF0F3;
+}
+
+.preset-cover-chip {
+  background: #FFFFFF;
+  border: 1.5px solid #E2E8F0;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  transition: all 0.2s;
+}
+
+.preset-cover-chip:hover, .preset-cover-chip.active {
+  border-color: var(--primary);
+  background: #FFF0F3;
+  color: var(--primary);
+}

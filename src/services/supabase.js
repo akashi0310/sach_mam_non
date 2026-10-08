@@ -411,6 +411,18 @@ export const dataService = {
   // Admin thêm học liệu mới vào Supabase
   async createMaterial(materialData) {
     if (!supabase) throw new Error('Chưa kết nối Supabase');
+    
+    // Đảm bảo slug hợp lệ và duy nhất nếu chưa có
+    if (!materialData.slug) {
+      const baseSlug = (materialData.title || 'hoc-lieu')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      materialData.slug = `${baseSlug || 'hl'}-${Date.now().toString().slice(-4)}`;
+    }
+
     let res = await supabase
       .from('hl_materials')
       .insert(materialData)
@@ -423,6 +435,29 @@ export const dataService = {
         .insert(materialData)
         .select()
         .single();
+    }
+
+    if (res.error) throw res.error;
+    return res.data;
+  },
+
+  // Admin cập nhật học liệu trên Supabase
+  async updateMaterial(materialId, updatedData) {
+    if (!supabase) throw new Error('Chưa kết nối Supabase');
+    let res = await supabase
+      .from('hl_materials')
+      .update(updatedData)
+      .eq('id', materialId)
+      .select()
+      .maybeSingle();
+
+    if (res.error || !res.data) {
+      res = await supabase
+        .from('materials')
+        .update(updatedData)
+        .eq('id', materialId)
+        .select()
+        .maybeSingle();
     }
 
     if (res.error) throw res.error;

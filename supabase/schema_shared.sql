@@ -86,6 +86,9 @@ ALTER TABLE public.hl_download_logs ENABLE ROW LEVEL SECURITY;
 
 -- POLICIES CHO PHÉP XEM HỌC LIỆU CÔNG KHAI VÀ GHI DỮ LIỆU
 CREATE POLICY "Public read hl_materials" ON public.hl_materials FOR SELECT USING (true);
+CREATE POLICY "Public insert hl_materials" ON public.hl_materials FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public update hl_materials" ON public.hl_materials FOR UPDATE USING (true);
+CREATE POLICY "Public delete hl_materials" ON public.hl_materials FOR DELETE USING (true);
 CREATE POLICY "Public read hl_categories" ON public.hl_categories FOR SELECT USING (true);
 CREATE POLICY "Public read hl_profiles" ON public.hl_profiles FOR SELECT USING (true);
 CREATE POLICY "Public insert hl_profiles" ON public.hl_profiles FOR INSERT WITH CHECK (true);
