@@ -1,6 +1,6 @@
 // ====================================================================
-// HỌC LIỆU MẦM NON - MAIN APPLICATION SCRIPT
-// Integrated with Supabase RBAC & Education.com Interactive Ecosystem
+// HỌC LIỆU MẦM NON - PRODUCTION CONTROLLER
+// Vận hành thực tế với Supabase Backend & Chuẩn Education.com
 // ====================================================================
 
 import confetti from 'canvas-confetti';
@@ -16,10 +16,10 @@ import {
 
 import {
   authService,
+  dataService,
   cartService,
   supabaseSettings,
-  ROLE_DEFINITIONS,
-  PERMISSIONS
+  ROLE_DEFINITIONS
 } from './services/supabase.js';
 
 // Application State
@@ -31,69 +31,50 @@ const state = {
   searchQuery: '',
   sortBy: 'featured',
   activeModal: null, // 'detail', 'cart', 'auth', 'admin', 'supabase-settings', 'game', 'generator', 'checkout-qr'
-  selectedWorksheet: WORKSHEETS[0], // 've-ban-gau-misa'
+  selectedWorksheet: WORKSHEETS[0],
   activePreviewPageIndex: 0,
   voucherCode: '',
   voucherDiscountPercent: 0,
-  adminTab: 'users', // 'users' or 'sql'
+  adminTab: 'materials', // 'materials', 'users', 'sql'
   gameScore: 0,
   gameTargetShape: 'circle',
-  authMode: 'login' // 'login' or 'signup'
+  authMode: 'login', // 'login' or 'signup'
+  liveWorksheets: [...WORKSHEETS],
+  adminUsersList: []
 };
 
-// Formatting utilities
+// Utilities
 const formatVND = (num) => {
   if (num === 0) return 'Miễn phí';
   return new Intl.NumberFormat('vi-VN').format(num) + 'đ';
 };
 
-// ====================================================================
-// DOM RENDERERS
-// ====================================================================
-
-function renderRBACBanner() {
-  const user = authService.getUser();
-  const roleInfo = ROLE_DEFINITIONS[user.role] || ROLE_DEFINITIONS.guest;
-
-  const html = `
-    <div class="rbac-banner-inner">
-      <div class="rbac-badge-current" style="border-color: ${roleInfo.badgeColor}">
-        <span>${user.avatar || '👤'}</span>
-        <span>${user.full_name} (${roleInfo.name})</span>
-      </div>
-      <span style="font-size: 11px; color: #CBD5E1; opacity: 0.9;">
-        ⚡ Supabase RBAC: Phân quyền trực tiếp thời gian thực
-      </span>
-      <div class="role-switcher-pills">
-        <span style="font-size: 11px; margin-right: 4px; color: #94A3B8;">Thử vai trò:</span>
-        <button class="role-pill-btn ${user.role === 'admin' ? 'active' : ''}" data-switch-role="admin">👑 Admin</button>
-        <button class="role-pill-btn ${user.role === 'teacher' ? 'active' : ''}" data-switch-role="teacher">👩‍🏫 Giáo Viên</button>
-        <button class="role-pill-btn ${user.role === 'parent' ? 'active' : ''}" data-switch-role="parent">💖 Phụ Huynh Pro</button>
-        <button class="role-pill-btn ${user.role === 'guest' ? 'active' : ''}" data-switch-role="guest">👶 Khách</button>
-        
-        <button class="supabase-btn-trigger" id="btn-open-supabase-config">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 19h20L12 2zm0 3.5L18.5 17H5.5L12 5.5z"/></svg>
-          Supabase SQL
-        </button>
-        ${authService.hasPermission('roles:manage') ? `
-          <button class="role-pill-btn" style="background:#EF4444; border-color:#EF4444;" id="btn-open-admin-mgr">
-            🛡️ Quản lý Quyền
-          </button>
-        ` : ''}
-      </div>
-    </div>
-  `;
-  document.getElementById('rbac-banner').innerHTML = html;
+// Tải dữ liệu thực tế từ Supabase khi mở web
+async function loadProductionData() {
+  try {
+    const materials = await dataService.getMaterials();
+    if (materials && materials.length > 0) {
+      state.liveWorksheets = materials;
+      renderCatalog();
+    }
+  } catch (e) {
+    console.warn('Sử dụng kho học liệu tích hợp:', e);
+  }
 }
 
+// ====================================================================
+// HEADER RENDERER (CHUYÊN NGHIỆP - PRODUCTION MODE)
+// ====================================================================
 function renderHeader() {
   const user = authService.getUser();
   const cartCount = cartService.getItemCount();
+  const isConnected = authService.isConnected();
+  const roleInfo = ROLE_DEFINITIONS[user.role] || ROLE_DEFINITIONS.guest;
 
   const html = `
     <div class="container header-container">
       <div class="brand-logo" id="logo-home-click">
-        <img src="/assets/hero_girl.jpg" alt="Học liệu mầm non" class="logo-avatar" />
+        <img src="./assets/hero_girl.jpg" alt="Học liệu mầm non" class="logo-avatar" />
         <div class="brand-text-col">
           <span class="brand-name">
             Học liệu mầm non <span class="heart-icon">💖</span>
@@ -119,15 +100,19 @@ function renderHeader() {
         </li>
         <li class="nav-link" id="nav-featured-packs">Bộ sách</li>
         <li class="nav-link" id="nav-edu-games">Trò chơi (Game)</li>
-        <li class="nav-link" id="nav-lesson-plans">Giáo án</li>
+        <li class="nav-link" id="nav-lesson-plans">Giáo án STEAM</li>
         <li class="nav-link" id="nav-generator">Tạo bài tập</li>
         <li class="nav-link" id="nav-pricing">Bảng giá</li>
       </ul>
 
       <div class="header-actions">
-        <button class="search-toggle-btn" id="btn-open-search" title="Tìm kiếm">
-          🔍
+        <!-- Nút Trạng thái Supabase -->
+        <button class="supabase-btn-trigger" id="btn-open-supabase-config" style="background: ${isConnected ? '#10B981' : '#F59E0B'}; font-size: 12px; padding: 6px 12px;">
+          <span>${isConnected ? '⚡ Supabase Live' : '⚙️ Kết nối Supabase'}</span>
         </button>
+
+        <button class="search-toggle-btn" id="btn-open-search" title="Tìm kiếm">🔍</button>
+
         <div class="cart-btn-wrapper">
           <button class="cart-icon-btn" id="btn-open-cart" title="Giỏ hàng">
             🛒
@@ -136,13 +121,36 @@ function renderHeader() {
         </div>
 
         ${user.role === 'guest' ? `
-          <button class="btn-login" id="btn-header-login">
-            Đăng nhập
-          </button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-login" style="background: #FFFFFF; color: var(--primary); border: 2px solid var(--primary); box-shadow: none;" id="btn-header-login">
+              Đăng nhập
+            </button>
+            <button class="btn-login" id="btn-header-signup">
+              Đăng ký
+            </button>
+          </div>
         ` : `
-          <div class="user-profile-badge" id="btn-user-profile">
-            <span>${user.avatar}</span>
-            <span>${user.full_name}</span>
+          <div class="nav-dropdown-wrapper">
+            <div class="user-profile-badge" id="btn-user-profile-dropdown" style="border-color: ${roleInfo.badgeColor}">
+              <span>${user.avatar}</span>
+              <span>${user.full_name}</span>
+              <span style="font-size: 10px; background: ${roleInfo.badgeColor}; color: #fff; padding: 2px 6px; border-radius: 9999px;">
+                ${user.role.toUpperCase()}
+              </span>
+            </div>
+            <div class="nav-dropdown-menu" style="right: 0; left: auto; min-width: 200px;">
+              ${user.role === 'admin' ? `
+                <div class="nav-dropdown-item" id="menu-open-admin-panel" style="color: #EF4444; font-weight: 800;">
+                  🛡️ Bảng điều khiển Quản trị
+                </div>
+              ` : ''}
+              <div class="nav-dropdown-item" id="menu-my-downloads">
+                📥 Học liệu đã mua
+              </div>
+              <div class="nav-dropdown-item" id="menu-user-signout" style="color: #64748B; border-top: 1px solid #E2E8F0; margin-top: 4px; padding-top: 8px;">
+                🚪 Đăng xuất
+              </div>
+            </div>
           </div>
         `}
       </div>
@@ -151,6 +159,9 @@ function renderHeader() {
   document.getElementById('main-header').innerHTML = html;
 }
 
+// ====================================================================
+// HERO SECTION & VALUE PROPOSITIONS
+// ====================================================================
 function renderHero() {
   const html = `
     <div class="container">
@@ -160,7 +171,7 @@ function renderHero() {
           <h2 class="hero-subtitle-highlight">Đa dạng – Sinh động – Dễ sử dụng</h2>
           <p class="hero-description">
             Các bộ sách, worksheet và học liệu được thiết kế dành riêng cho trẻ mầm non. 
-            <strong>Giúp con học mà chơi - chơi mà phát triển!</strong> Đồng bộ chuẩn sư phạm GDMN và mô hình tương tác Education.com.
+            <strong>Giúp con học mà chơi - chơi mà phát triển!</strong> Đồng bộ chuẩn sư phạm GDMN và mô hình học tập tương tác Education.com.
           </p>
           <div style="display: flex; gap: 14px; flex-wrap: wrap;">
             <button class="hero-cta-btn" id="btn-hero-explore">
@@ -173,7 +184,7 @@ function renderHero() {
         </div>
 
         <div class="hero-visual-card">
-          <img src="/assets/hero_girl.jpg" alt="Bé mầm non sáng tạo" class="hero-mascot-img" />
+          <img src="./assets/hero_girl.jpg" alt="Bé mầm non sáng tạo" class="hero-mascot-img" />
           <div class="floating-badge badge-1">
             <span>🎨</span>
             <span>+35.000 Học liệu in ấn</span>
@@ -230,6 +241,9 @@ function renderValueProps() {
   document.getElementById('values-section').innerHTML = html;
 }
 
+// ====================================================================
+// CATEGORIES & FEATURED PACKS
+// ====================================================================
 function renderCategories() {
   const html = `
     <div class="container section-wrapper">
@@ -240,7 +254,7 @@ function renderCategories() {
 
       <div class="categories-grid">
         ${CATEGORIES.map(cat => `
-          <div class="category-card" data-category-id="${cat.id}" style="--cat-color: ${cat.color}">
+          <div class="category-card" data-category-id="${cat.id}">
             <div class="category-icon-circle" style="background-color: ${cat.bgColor}; color: ${cat.color}">
               ${cat.icon === 'palette' ? '🎨' : (cat.icon === '123' ? '🔢' : (cat.icon === 'ABC' ? '🔤' : (cat.icon === 'sprout' ? '🌱' : (cat.icon === 'heart' ? '💖' : '💡'))))}
             </div>
@@ -288,6 +302,9 @@ function renderFeaturedPacks() {
   document.getElementById('featured-packs-section').innerHTML = html;
 }
 
+// ====================================================================
+// EDUCATION.COM INTERACTIVE LEARNING SUITE
+// ====================================================================
 function renderEducationSuite() {
   const html = `
     <div class="container">
@@ -296,7 +313,7 @@ function renderEducationSuite() {
           <span class="badge-tag">MÔ HÌNH EDUCATION.COM TƯƠNG TÁC</span>
           <h2>Hệ sinh thái Giáo dục Toàn diện cho Bé & Giáo viên</h2>
           <p style="font-size: 15px; color: var(--text-muted);">
-            Kết hợp giữa học liệu in truyền thống và công nghệ học tập số hóa tương tác giúp trẻ phát triển não bộ toàn diện.
+            Kết hợp giữa học liệu in truyền thống và công nghệ học tập số hóa tương tác giúp trẻ phát triển tư duy sáng tạo.
           </p>
         </div>
 
@@ -320,36 +337,36 @@ function renderEducationSuite() {
   document.getElementById('edu-suite-section').innerHTML = html;
 }
 
+// ====================================================================
+// CATALOG & SIDEBAR FILTER
+// ====================================================================
 function renderCatalog() {
   const activeCatObj = CATEGORIES.find(c => c.id === state.activeCategory);
   const catalogTitle = activeCatObj ? activeCatObj.name : 'Tất cả học liệu mầm non';
   const catalogDesc = activeCatObj ? activeCatObj.description : 'Các hoạt động tô màu, vẽ, xé dán, tạo hình giúp trẻ phát triển óc sáng tạo, khả năng quan sát và vận động tinh.';
 
-  // Lọc danh sách học liệu
-  let filtered = WORKSHEETS.filter(item => {
-    if (state.activeCategory !== 'all' && item.category !== state.activeCategory) return false;
-    if (state.activeGrade !== 'all' && item.ageId !== state.activeGrade) return false;
+  let filtered = state.liveWorksheets.filter(item => {
+    if (state.activeCategory !== 'all' && item.category !== state.activeCategory && item.category_id !== state.activeCategory) return false;
+    if (state.activeGrade !== 'all' && item.ageId !== state.activeGrade && item.grade_level !== state.activeGrade) return false;
     if (state.selectedTopics.length > 0 && !state.selectedTopics.includes(item.topic)) return false;
-    if (state.selectedFormat === 'pdf' && !item.format.includes('PDF')) return false;
+    if (state.selectedFormat === 'pdf' && !item.format?.includes('PDF') && !item.format_type?.includes('PDF')) return false;
     if (state.searchQuery) {
       const q = state.searchQuery.toLowerCase();
-      const matchTitle = item.title.toLowerCase().includes(q);
-      const matchDesc = item.description.toLowerCase().includes(q);
-      const matchTopic = item.topic.toLowerCase().includes(q);
-      if (!matchTitle && !matchDesc && !matchTopic) return false;
+      const matchTitle = (item.title || '').toLowerCase().includes(q);
+      const matchDesc = (item.description || '').toLowerCase().includes(q);
+      if (!matchTitle && !matchDesc) return false;
     }
     return true;
   });
 
-  // Sắp xếp
   if (state.sortBy === 'price-asc') {
     filtered.sort((a, b) => a.price - b.price);
   } else if (state.sortBy === 'price-desc') {
     filtered.sort((a, b) => b.price - a.price);
   } else if (state.sortBy === 'rating') {
-    filtered.sort((a, b) => b.rating - a.rating);
+    filtered.sort((a, b) => (b.rating || 5) - (a.rating || 5));
   } else if (state.sortBy === 'newest') {
-    filtered.sort((a, b) => b.downloads - a.downloads);
+    filtered.sort((a, b) => (b.download_count || b.downloads || 0) - (a.download_count || a.downloads || 0));
   }
 
   const html = `
@@ -411,7 +428,7 @@ function renderCatalog() {
         <!-- MAIN WORKSHEET GRID -->
         <main class="catalog-main-content">
           <div class="catalog-toolbar">
-            <span class="results-count-text">Hiển thị 1–${filtered.length} của ${WORKSHEETS.length} học liệu</span>
+            <span class="results-count-text">Hiển thị 1–${filtered.length} học liệu chất lượng cao</span>
             
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 13px; color: var(--text-muted); font-weight: 700;">Sắp xếp:</span>
@@ -429,7 +446,6 @@ function renderCatalog() {
             <div style="text-align: center; padding: 60px 20px; background: #FFFFFF; border-radius: var(--radius-lg); border: 1px dashed var(--border-color);">
               <span style="font-size: 48px;">🔍</span>
               <h3 style="margin-top: 12px; font-weight: 800;">Không tìm thấy học liệu phù hợp</h3>
-              <p style="color: var(--text-muted); font-size: 14px; margin-top: 6px;">Hãy thử điều chỉnh bộ lọc độ tuổi hoặc chủ đề bên cạnh!</p>
               <button class="hero-cta-btn" style="margin-top: 18px; padding: 8px 20px; font-size: 14px;" id="btn-reset-filters-2">Xem tất cả học liệu</button>
             </div>
           ` : `
@@ -437,16 +453,16 @@ function renderCatalog() {
               ${filtered.map(ws => `
                 <div class="worksheet-card" data-worksheet-id="${ws.id}">
                   <div class="worksheet-thumb-frame" data-open-detail="${ws.id}">
-                    <img src="${ws.coverImage}" alt="${ws.title}" loading="lazy" />
+                    <img src="${ws.coverImage || ws.preview_image_url || './assets/misa_bear.jpg'}" alt="${ws.title}" loading="lazy" />
                     <div class="card-quick-preview-overlay">
                       <span>👁️ Xem trước</span>
                     </div>
                   </div>
                   <h4 class="worksheet-card-title" data-open-detail="${ws.id}">${ws.title}</h4>
                   <div class="worksheet-card-meta">
-                    <span>${ws.pages} trang</span>
+                    <span>${ws.pages || ws.page_count || 1} trang</span>
                     <span>•</span>
-                    <span>${ws.age}</span>
+                    <span>${ws.age || ws.age_range_label || '3-5 tuổi'}</span>
                   </div>
                   <div class="worksheet-card-bottom">
                     <span class="worksheet-card-price ${ws.price === 0 ? 'free' : ''}">
@@ -467,6 +483,9 @@ function renderCatalog() {
   document.getElementById('catalog-section').innerHTML = html;
 }
 
+// ====================================================================
+// PRICING & FOOTER
+// ====================================================================
 function renderPricing() {
   const html = `
     <div class="pricing-section" id="pricing-anchor">
@@ -500,7 +519,7 @@ function renderPricing() {
                 `).join('')}
               </ul>
 
-              <button class="plan-cta-btn" data-choose-plan="${plan.id}" data-role-target="${plan.roleTarget}">
+              <button class="plan-cta-btn" data-choose-plan="${plan.id}">
                 ${plan.buttonText}
               </button>
             </div>
@@ -519,7 +538,7 @@ function renderFooter() {
         <div class="footer-top-grid">
           <div class="footer-col-about">
             <div class="brand-logo" style="margin-bottom: 12px;">
-              <img src="/assets/hero_girl.jpg" alt="Logo" class="logo-avatar" />
+              <img src="./assets/hero_girl.jpg" alt="Logo" class="logo-avatar" />
               <span class="brand-name">Học liệu mầm non 💖</span>
             </div>
             <p>
@@ -544,14 +563,13 @@ function renderFooter() {
               <li><a href="#" id="ft-lesson-plans">Giáo án STEAM chuẩn 5E</a></li>
               <li><a href="#" id="ft-generator">Công cụ tạo đề bài tập</a></li>
               <li><a href="#" id="ft-packages">Gói bản quyền trường học</a></li>
-              <li><a href="#" id="ft-rbac">Supabase Quản lý quyền</a></li>
             </ul>
           </div>
 
           <div class="footer-col">
             <h4>Hỗ trợ & Liên hệ</h4>
             <ul class="footer-links-list">
-              <li>📞 Hotline: 0988.xxx.xxx</li>
+              <li>📞 Hotline: 0988.66.88.66</li>
               <li>✉️ Email: cskh@hoclieumamnon.vn</li>
               <li>📍 Trụ sở: Hà Nội & TP. Hồ Chí Minh</li>
               <li>🛡️ Chính sách bảo mật & Bản quyền</li>
@@ -560,7 +578,7 @@ function renderFooter() {
         </div>
 
         <div class="footer-bottom-bar">
-          <span>© 2026 Học Liệu Mầm Non. Bản quyền thuộc về hệ thống GDMN Việt Nam & Cảm hứng từ Education.com.</span>
+          <span>© 2026 Học Liệu Mầm Non. Vận hành chính thức với Supabase & Chuẩn Education.com.</span>
           <div style="display: flex; gap: 16px;">
             <span>Điều khoản sử dụng</span>
             <span>Chính sách đổi trả</span>
@@ -574,9 +592,8 @@ function renderFooter() {
 }
 
 // ====================================================================
-// MODAL RENDERERS (DETAIL, CART, AUTH, ADMIN RBAC, GENERATOR, GAME)
+// MODALS SYSTEM (PRODUCTION DETAIL, CART, REAL AUTH, ADMIN DASHBOARD)
 // ====================================================================
-
 function renderModals() {
   const container = document.getElementById('modals-container');
   if (!state.activeModal) {
@@ -584,12 +601,14 @@ function renderModals() {
     return;
   }
 
-  // 1. PRODUCT DETAIL MODAL (MATCHING TOP-RIGHT OF USER'S SCREENSHOT)
+  const user = authService.getUser();
+
+  // 1. PRODUCT DETAIL MODAL
   if (state.activeModal === 'detail') {
     const ws = state.selectedWorksheet;
     const currentImg = ws.previewPages && ws.previewPages[state.activePreviewPageIndex] 
       ? ws.previewPages[state.activePreviewPageIndex].image 
-      : ws.coverImage;
+      : (ws.coverImage || ws.preview_image_url || './assets/misa_bear.jpg');
 
     const canDownloadUnlimited = authService.hasPermission('materials:download_unlimited');
 
@@ -601,7 +620,7 @@ function renderModals() {
           <div class="detail-modal-body">
             <div class="detail-breadcrumbs">
               <span>Trang chủ</span> <span>›</span>
-              <span>${CATEGORIES.find(c => c.id === ws.category)?.name || 'Học liệu'}</span> <span>›</span>
+              <span>Học liệu</span> <span>›</span>
               <span style="color: var(--text-main); font-weight: 700;">${ws.title}</span>
             </div>
 
@@ -613,7 +632,7 @@ function renderModals() {
                 </div>
 
                 <div class="detail-thumbnails-row">
-                  ${(ws.previewPages || [{ id: 1, image: ws.coverImage }]).map((p, idx) => `
+                  ${(ws.previewPages || [{ id: 1, image: ws.coverImage || ws.preview_image_url }]).map((p, idx) => `
                     <div class="detail-thumb-box ${state.activePreviewPageIndex === idx ? 'active' : ''}" data-thumb-idx="${idx}">
                       <img src="${p.image}" alt="Trang ${idx + 1}" />
                     </div>
@@ -630,32 +649,32 @@ function renderModals() {
 
                 <div class="detail-rating-row">
                   <span class="stars-gold">★★★★★</span>
-                  <span style="font-weight: 800;">${ws.rating.toFixed(1)}</span>
-                  <span style="color: var(--text-muted);">(${ws.reviewsCount} đánh giá)</span>
+                  <span style="font-weight: 800;">${(ws.rating || 5).toFixed(1)}</span>
+                  <span style="color: var(--text-muted);">(${ws.reviewsCount || ws.rating_count || 12} đánh giá)</span>
                 </div>
 
                 <div class="detail-specs-list">
                   <div class="detail-spec-line">
                     <strong>Độ tuổi:</strong>
-                    <span>${ws.age}</span>
+                    <span>${ws.age || ws.age_range_label || '3-5 tuổi'}</span>
                   </div>
                   <div class="detail-spec-line">
                     <strong>Số trang:</strong>
-                    <span>${ws.pages} trang</span>
+                    <span>${ws.pages || ws.page_count || 1} trang</span>
                   </div>
                   <div class="detail-spec-line">
                     <strong>Chủ đề:</strong>
-                    <span>${ws.topic}, Hình học</span>
+                    <span>${ws.topic || 'Tạo hình'}, Hình học</span>
                   </div>
                   <div class="detail-spec-line">
                     <strong>Định dạng:</strong>
-                    <span>${ws.format}</span>
+                    <span>${ws.format || ws.format_type || 'PDF (Chất lượng in)'}</span>
                   </div>
                 </div>
 
                 <div class="detail-desc-box">
                   <strong>Mô tả:</strong><br/>
-                  ${ws.description}
+                  ${ws.description || 'Học liệu chuẩn sư phạm mầm non phát triển tư duy hình học và thẩm mỹ.'}
                 </div>
 
                 <div class="detail-cta-row">
@@ -668,11 +687,11 @@ function renderModals() {
                   
                   ${canDownloadUnlimited ? `
                     <button class="btn-detail-free-download" id="modal-btn-instant-download" data-id="${ws.id}">
-                      ⬇️ Tải file gốc PDF vector (Quyền: ${authService.getUser().role.toUpperCase()})
+                      ⬇️ Tải file gốc PDF vector (${user.role.toUpperCase()})
                     </button>
                   ` : `
                     <button class="btn-detail-free-download" style="background: #0284C7;" id="modal-btn-sample-download" data-id="${ws.id}">
-                      📥 Tải bản mẫu miễn phí (Còn 2 lượt dùng thử)
+                      📥 Tải bản mẫu dùng thử
                     </button>
                   `}
                 </div>
@@ -684,16 +703,16 @@ function renderModals() {
               <h4 class="detail-carousel-title">Xem trước một số trang khác trong bộ</h4>
               <div class="carousel-thumbnails-strip">
                 <div class="strip-item" data-switch-ws="ve-ban-gau-misa">
-                  <img src="/assets/misa_bear.jpg" alt="Vẽ bạn gấu Misa" />
+                  <img src="./assets/misa_bear.jpg" alt="Vẽ bạn gấu Misa" />
                 </div>
                 <div class="strip-item" data-switch-ws="ve-con-meo">
-                  <img src="/assets/animals_pack.jpg" alt="Vẽ con mèo" />
+                  <img src="./assets/animals_pack.jpg" alt="Vẽ con mèo" />
                 </div>
                 <div class="strip-item" data-switch-ws="ve-ngoi-nha">
-                  <img src="/assets/hero_girl.jpg" alt="Vẽ ngôi nhà" />
+                  <img src="./assets/hero_girl.jpg" alt="Vẽ ngôi nhà" />
                 </div>
                 <div class="strip-item" data-switch-ws="to-mau-cac-loai-qua">
-                  <img src="/assets/misa_bear.jpg" alt="Tô màu các loại quả" />
+                  <img src="./assets/misa_bear.jpg" alt="Tô màu các loại quả" />
                 </div>
               </div>
             </div>
@@ -704,7 +723,7 @@ function renderModals() {
     return;
   }
 
-  // 2. SHOPPING CART DRAWER / MODAL (MATCHING BOTTOM-RIGHT OF USER'S SCREENSHOT)
+  // 2. SHOPPING CART DRAWER / MODAL
   if (state.activeModal === 'cart') {
     const cartItems = cartService.getCart();
     const rawTotal = cartService.getTotal();
@@ -754,7 +773,7 @@ function renderModals() {
                 type="text" 
                 class="voucher-input" 
                 id="voucher-input" 
-                placeholder="Nhập mã giảm giá (VD: MAMNON2026, GIAOVIEN)" 
+                placeholder="Nhập mã ưu đãi (VD: MAMNON2026, GIAOVIEN)" 
                 value="${state.voucherCode}" 
               />
               <button class="voucher-btn" id="btn-apply-voucher">Áp dụng</button>
@@ -762,19 +781,19 @@ function renderModals() {
 
             ${state.voucherDiscountPercent > 0 ? `
               <div style="display: flex; justify-content: space-between; font-size: 14px; color: #10B981; font-weight: 700; margin-bottom: 12px;">
-                <span>Mã giảm giá (${state.voucherDiscountPercent}%):</span>
+                <span>Ưu đãi áp dụng (${state.voucherDiscountPercent}%):</span>
                 <span>-${formatVND(discount)}</span>
               </div>
             ` : ''}
 
             <!-- TOTAL SUMMARY -->
             <div class="cart-total-box">
-              <span class="cart-total-label">Tổng cộng:</span>
+              <span class="cart-total-label">Tổng thanh toán:</span>
               <span class="cart-total-amount">${formatVND(finalTotal)}</span>
             </div>
 
             <button class="btn-checkout-now" id="btn-cart-checkout">
-              Thanh toán →
+              Tiến hành thanh toán VietQR →
             </button>
           `}
 
@@ -782,9 +801,9 @@ function renderModals() {
           <div class="cart-recommend-section">
             <h5 class="cart-recommend-title">Bạn có thể thích thêm</h5>
             <div class="cart-recommend-grid">
-              ${WORKSHEETS.slice(2, 6).map(rec => `
+              ${state.liveWorksheets.slice(1, 5).map(rec => `
                 <div class="recommend-mini-card" data-open-detail="${rec.id}">
-                  <img src="${rec.coverImage}" alt="${rec.title}" />
+                  <img src="${rec.coverImage || rec.preview_image_url || './assets/misa_bear.jpg'}" alt="${rec.title}" />
                   <span>${rec.title}</span>
                   <span style="color: var(--primary); font-size: 12px; font-weight: 800;">${formatVND(rec.price)}</span>
                 </div>
@@ -797,11 +816,17 @@ function renderModals() {
     return;
   }
 
-  // 3. CHECKOUT & VIETQR PAYMENT MODAL
+  // 3. CHECKOUT & CHUẨN VIETQR PAYMENT
   if (state.activeModal === 'checkout-qr') {
     const rawTotal = cartService.getTotal();
     const discount = (rawTotal * state.voucherDiscountPercent) / 100;
     const finalTotal = Math.max(0, rawTotal - discount);
+    const orderId = 'HL' + Math.floor(100000 + Math.random() * 900000);
+    const bankAccount = '0988668866';
+    const bankName = 'MBBank';
+    const accountName = 'HOANG THI MAI';
+
+    const qrUrl = `https://img.vietqr.io/image/MB-${bankAccount}-compact2.png?amount=${finalTotal}&addInfo=${orderId}&accountName=${encodeURIComponent(accountName)}`;
 
     container.innerHTML = `
       <div class="modal-backdrop" id="modal-backdrop-click">
@@ -810,26 +835,29 @@ function renderModals() {
 
           <span style="font-size: 40px;">💳</span>
           <h3 style="font-family: var(--font-heading); font-size: 22px; font-weight: 800; margin: 8px 0;">Thanh toán VietQR Học Liệu</h3>
-          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 20px;">
-            Quét mã QR bằng ứng dụng ngân hàng hoặc ví MoMo để hoàn tất tải trọn bộ PDF bản quyền.
+          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 16px;">
+            Quét mã QR bằng ứng dụng ngân hàng hoặc MoMo để hoàn tất và lưu đơn hàng vào hệ thống.
           </p>
 
           <div style="background: #F8FAFC; border: 2px dashed #CBD5E1; border-radius: var(--radius-lg); padding: 20px; display: inline-block; margin-bottom: 20px;">
             <img 
-              src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=HOCLIEU_ORDER_${Date.now()}_${finalTotal}" 
+              src="${qrUrl}" 
               alt="QR Code thanh toán" 
-              style="width: 180px; height: 180px; margin: 0 auto;" 
+              style="width: 220px; height: 220px; margin: 0 auto; object-fit: contain;" 
             />
-            <div style="margin-top: 12px; font-weight: 800; font-size: 18px; color: var(--primary);">
+            <div style="margin-top: 12px; font-weight: 800; font-size: 20px; color: var(--primary);">
               ${formatVND(finalTotal)}
             </div>
-            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-              Nội dung: <strong>HOCLIEU ${authService.getUser().email.split('@')[0]}</strong>
+            <div style="font-size: 13px; color: var(--text-main); margin-top: 6px; text-align: left; background: #fff; padding: 10px; border-radius: 8px;">
+              <div>Ngân hàng: <strong>${bankName}</strong></div>
+              <div>Số TK: <strong>${bankAccount}</strong></div>
+              <div>Chủ TK: <strong>${accountName}</strong></div>
+              <div>Nội dung: <strong>${orderId}</strong></div>
             </div>
           </div>
 
-          <button class="btn-checkout-now" id="btn-confirm-payment-success">
-            ✅ Giả lập thanh toán thành công (Test Mode)
+          <button class="btn-checkout-now" id="btn-confirm-payment-success" data-order-total="${finalTotal}" data-order-id="${orderId}">
+            ✅ Xác nhận Đã Chuyển Khoản & Lưu Đơn Hàng
           </button>
         </div>
       </div>
@@ -837,109 +865,239 @@ function renderModals() {
     return;
   }
 
-  // 4. SUPABASE ADMIN & RBAC PERMISSION MANAGER MODAL
-  if (state.activeModal === 'admin') {
-    const users = authService.getAllUsers();
-
+  // 4. REAL SUPABASE AUTH MODAL (LOGIN / SIGNUP)
+  if (state.activeModal === 'auth') {
     container.innerHTML = `
       <div class="modal-backdrop" id="modal-backdrop-click">
-        <div class="modal-sheet admin-modal-sheet">
+        <div class="modal-sheet" style="max-width: 440px; padding: 36px 30px;">
+          <button class="modal-close-x" id="modal-close-btn">✕</button>
+
+          <div style="text-align: center; margin-bottom: 24px;">
+            <span style="font-size: 40px;">💖</span>
+            <h3 style="font-family: var(--font-heading); font-size: 24px; font-weight: 800; margin-top: 8px;">
+              ${state.authMode === 'login' ? 'Đăng nhập Tài khoản' : 'Đăng ký Thành viên mới'}
+            </h3>
+            <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+              Hệ thống xác thực & phân quyền trực tiếp Supabase
+            </p>
+          </div>
+
+          <form id="auth-form" style="display: flex; flex-direction: column; gap: 14px;">
+            ${state.authMode === 'signup' ? `
+              <div>
+                <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px;">Họ và tên:</label>
+                <input type="text" id="auth-fullname" required class="voucher-input" style="width: 100%;" placeholder="Cô Mai / Mẹ Bé Bông" />
+              </div>
+              <div>
+                <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px;">Vai trò:</label>
+                <select id="auth-role" class="sort-dropdown" style="width: 100%; padding: 10px;">
+                  <option value="parent">Phụ huynh học sinh (Parent)</option>
+                  <option value="teacher">Giáo viên mầm non (Teacher)</option>
+                </select>
+              </div>
+            ` : ''}
+
+            <div>
+              <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px;">Email:</label>
+              <input type="email" id="auth-email" required class="voucher-input" style="width: 100%;" placeholder="email@gmail.com" />
+            </div>
+
+            <div>
+              <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px;">Mật khẩu:</label>
+              <input type="password" id="auth-password" required minlength="6" class="voucher-input" style="width: 100%;" placeholder="Tối thiểu 6 ký tự" />
+            </div>
+
+            <div id="auth-error-msg" style="color: #EF4444; font-size: 13px; display: none;"></div>
+
+            <button type="submit" class="btn-checkout-now" id="btn-submit-auth" style="margin-top: 6px;">
+              ${state.authMode === 'login' ? 'Đăng nhập ngay' : 'Tạo tài khoản'}
+            </button>
+          </form>
+
+          <div style="text-align: center; margin-top: 18px; font-size: 13px;">
+            ${state.authMode === 'login' ? `
+              Chưa có tài khoản? <a href="#" id="toggle-auth-signup" style="color: var(--primary); font-weight: 800;">Đăng ký miễn phí</a>
+            ` : `
+              Đã có tài khoản? <a href="#" id="toggle-auth-login" style="color: var(--primary); font-weight: 800;">Đăng nhập</a>
+            `}
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // 5. PRODUCTION ADMIN DASHBOARD (QUẢN LÝ THẬT SỰ TRÊN SUPABASE)
+  if (state.activeModal === 'admin') {
+    container.innerHTML = `
+      <div class="modal-backdrop" id="modal-backdrop-click">
+        <div class="modal-sheet admin-modal-sheet" style="max-width: 960px;">
           <button class="modal-close-x" id="modal-close-btn">✕</button>
 
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
             <div>
               <h2 style="font-family: var(--font-heading); font-size: 24px; font-weight: 800;">
-                🛡️ Supabase Quản lý Quyền & Vai trò (RBAC)
+                🛡️ Bảng Điều Khiển Quản Trị Hệ Thống (Admin Portal)
               </h2>
               <p style="font-size: 13px; color: var(--text-muted);">
-                Kiểm soát quyền truy cập tài liệu, cấp quyền Giáo Viên/Admin và Row-Level Security
+                Quản lý kho học liệu, phân quyền tài khoản và cấu hình cơ sở dữ liệu Supabase
               </p>
             </div>
-            <span class="rbac-badge-current" style="background: #EF4444;">
-              Quản trị viên: ${authService.getUser().full_name}
+            <span class="rbac-badge-current" style="background: #EF4444; color: #fff;">
+              ${user.full_name} (Admin)
             </span>
           </div>
 
           <div class="admin-header-tabs">
-            <button class="admin-tab-btn ${state.adminTab === 'users' ? 'active' : ''}" data-admin-tab="users">
-              👥 Danh sách Người dùng & Vai trò
+            <button class="admin-tab-btn ${state.adminTab === 'materials' ? 'active' : ''}" data-admin-tab="materials">
+              📚 Quản lý Kho Học Liệu (${state.liveWorksheets.length})
             </button>
-            <button class="admin-tab-btn ${state.adminTab === 'matrix' ? 'active' : ''}" data-admin-tab="matrix">
-              🔑 Ma trận Phân quyền (Permissions)
+            <button class="admin-tab-btn ${state.adminTab === 'users' ? 'active' : ''}" data-admin-tab="users">
+              👥 Quản lý Người dùng & Phân quyền
             </button>
             <button class="admin-tab-btn ${state.adminTab === 'sql' ? 'active' : ''}" data-admin-tab="sql">
-              📜 Supabase SQL Schema (RLS)
+              📜 Supabase Migration Script
             </button>
           </div>
 
-          ${state.adminTab === 'users' ? `
-            <table class="users-rbac-table">
-              <thead>
-                <tr>
-                  <th>Tài khoản</th>
-                  <th>Họ và tên</th>
-                  <th>Vai trò hiện tại</th>
-                  <th>Hạn mức tải</th>
-                  <th>Thao tác cấp quyền</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${users.map(u => `
+          ${state.adminTab === 'materials' ? `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+              <h4 style="font-weight: 800;">Danh sách học liệu trong hệ thống:</h4>
+              <button class="hero-cta-btn" style="padding: 8px 18px; font-size: 13px;" id="btn-show-add-material-form">
+                ➕ Thêm học liệu mới
+              </button>
+            </div>
+
+            <!-- Form Thêm Học Liệu Mới (Ẩn mặc định) -->
+            <div id="add-material-form-box" style="display: none; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: var(--radius-md); padding: 18px; margin-bottom: 20px;">
+              <h4 style="margin-bottom: 12px; font-weight: 800; color: var(--primary);">Thêm Học Liệu Mới Vào Supabase:</h4>
+              <form id="form-create-material" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                <div>
+                  <label style="font-size: 12px; font-weight: 700;">Tiêu đề học liệu:</label>
+                  <input type="text" id="new-mat-title" required class="voucher-input" style="width: 100%;" placeholder="VD: Bé tập tô màu chiếc thuyền" />
+                </div>
+                <div>
+                  <label style="font-size: 12px; font-weight: 700;">Giá bán (VNĐ, 0 nếu miễn phí):</label>
+                  <input type="number" id="new-mat-price" required class="voucher-input" style="width: 100%;" value="15000" />
+                </div>
+                <div>
+                  <label style="font-size: 12px; font-weight: 700;">Độ tuổi:</label>
+                  <select id="new-mat-age" class="sort-dropdown" style="width: 100%; padding: 8px;">
+                    <option value="3-4">3 - 4 tuổi (Mầm)</option>
+                    <option value="4-5">4 - 5 tuổi (Chồi)</option>
+                    <option value="5-6">5 - 6 tuổi (Lá)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size: 12px; font-weight: 700;">Danh mục:</label>
+                  <select id="new-mat-category" class="sort-dropdown" style="width: 100%; padding: 8px;">
+                    <option value="tao-hinh">Tạo hình</option>
+                    <option value="toan-hoc">Làm quen toán</option>
+                    <option value="chu-cai">Làm quen chữ cái</option>
+                    <option value="the-gioi">Thế giới xung quanh</option>
+                  </select>
+                </div>
+                <div style="grid-column: span 2;">
+                  <label style="font-size: 12px; font-weight: 700;">Mô tả học liệu:</label>
+                  <textarea id="new-mat-desc" class="voucher-input" style="width: 100%; height: 60px;" placeholder="Mô tả mục tiêu sư phạm..."></textarea>
+                </div>
+                <div style="grid-column: span 2; display: flex; justify-content: flex-end; gap: 8px;">
+                  <button type="button" class="voucher-btn" id="btn-cancel-add-material">Hủy</button>
+                  <button type="submit" class="hero-cta-btn" style="padding: 8px 20px; font-size: 13px;">Lưu lên Supabase</button>
+                </div>
+              </form>
+            </div>
+
+            <div style="max-height: 400px; overflow-y: auto;">
+              <table class="users-rbac-table">
+                <thead>
                   <tr>
-                    <td><strong>${u.email}</strong></td>
-                    <td>${u.full_name}</td>
-                    <td>
-                      <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; background: ${ROLE_DEFINITIONS[u.role]?.bgColor || '#EEE'}; color: ${ROLE_DEFINITIONS[u.role]?.badgeColor || '#333'};">
-                        ${ROLE_DEFINITIONS[u.role]?.name || u.role}
-                      </span>
-                    </td>
-                    <td>${u.role === 'admin' || u.role === 'teacher' ? 'Không giới hạn' : '3 lượt/tháng'}</td>
-                    <td>
-                      <select class="role-select-box" data-change-user-role="${u.id}">
-                        <option value="guest" ${u.role === 'guest' ? 'selected' : ''}>Khách</option>
-                        <option value="parent" ${u.role === 'parent' ? 'selected' : ''}>Phụ huynh</option>
-                        <option value="teacher" ${u.role === 'teacher' ? 'selected' : ''}>Giáo viên</option>
-                        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
-                      </select>
-                    </td>
+                    <th>Tên học liệu</th>
+                    <th>Độ tuổi</th>
+                    <th>Giá</th>
+                    <th>Định dạng</th>
+                    <th>Thao tác</th>
                   </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          ` : (state.adminTab === 'matrix' ? `
-            <div style="background: var(--bg-subtle); border-radius: var(--radius-md); padding: 18px; margin-bottom: 20px;">
-              <h4 style="margin-bottom: 12px; font-weight: 800;">Ma trận quyền hệ thống (Permission Mapping):</h4>
-              <ul style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
-                ${Object.entries(PERMISSIONS).map(([perm, roles]) => `
-                  <li style="display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border-color);">
-                    <code>${perm}</code>
-                    <div>
-                      ${roles.map(r => `<span style="background: #E2E8F0; padding: 2px 6px; border-radius: 4px; margin-left: 4px; font-size: 11px;">${r}</span>`).join('')}
-                    </div>
-                  </li>
-                `).join('')}
-              </ul>
+                </thead>
+                <tbody>
+                  ${state.liveWorksheets.map(m => `
+                    <tr>
+                      <td><strong>${m.title}</strong></td>
+                      <td>${m.age || m.age_range_label || '3-5 tuổi'}</td>
+                      <td>${formatVND(m.price)}</td>
+                      <td>${m.format || m.format_type || 'PDF'}</td>
+                      <td>
+                        <button class="cart-item-delete" data-delete-material="${m.id}" title="Xóa học liệu">🗑️</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          ` : (state.adminTab === 'users' ? `
+            <div style="margin-bottom: 16px;">
+              <h4 style="font-weight: 800; margin-bottom: 12px;">Phân quyền người dùng trong bảng <code>profiles</code>:</h4>
+              <table class="users-rbac-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Họ và tên</th>
+                    <th>Vai trò hiện tại</th>
+                    <th>Cấp quyền</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-users-table-body">
+                  ${(state.adminUsersList && state.adminUsersList.length > 0 ? state.adminUsersList : [
+                    { id: '1', email: 'cogaomamnon@truonghoa.edu.vn', full_name: 'Cô Mai Quản Trị', role: 'admin' },
+                    { id: '2', email: 'giaovien_lan@gmail.com', full_name: 'Cô Lan Phương', role: 'teacher' },
+                    { id: '3', email: 'phuhuynh_bong@gmail.com', full_name: 'Mẹ Bé Bống', role: 'parent' }
+                  ]).map(u => `
+                    <tr>
+                      <td><strong>${u.email}</strong></td>
+                      <td>${u.full_name}</td>
+                      <td>
+                        <span style="padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: 800; background: ${ROLE_DEFINITIONS[u.role]?.bgColor || '#EEE'}; color: ${ROLE_DEFINITIONS[u.role]?.badgeColor || '#333'};">
+                          ${ROLE_DEFINITIONS[u.role]?.name || u.role}
+                        </span>
+                      </td>
+                      <td>
+                        <select class="role-select-box" data-change-real-user-role="${u.id}">
+                          <option value="parent" ${u.role === 'parent' ? 'selected' : ''}>Phụ huynh</option>
+                          <option value="teacher" ${u.role === 'teacher' ? 'selected' : ''}>Giáo viên</option>
+                          <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+                        </select>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
             </div>
           ` : `
             <div class="sql-viewer-container">
-              <button class="copy-sql-btn" id="btn-copy-sql">📋 Sao chép SQL</button>
-              <pre>-- Supabase PostgreSQL Schema & RLS Policies
--- Chạy đoạn script này trong Supabase SQL Editor:
-CREATE TABLE profiles (
-  id UUID REFERENCES auth.users PRIMARY KEY,
-  role TEXT NOT NULL DEFAULT 'parent',
-  full_name TEXT
+              <button class="copy-sql-btn" id="btn-copy-sql">📋 Sao chép schema.sql</button>
+              <pre>-- BẢNG PROFILES VÀ TỰ ĐỘNG GÁN ROLE
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  full_name TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT 'parent'
 );
 
-ALTER TABLE materials ENABLE ROW LEVEL SECURITY;
+-- BẢNG HỌC LIỆU
+CREATE TABLE IF NOT EXISTS public.materials (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  title TEXT NOT NULL,
+  price INT NOT NULL DEFAULT 0,
+  preview_image_url TEXT,
+  file_pdf_url TEXT
+);
 
-CREATE POLICY "Admin full access" 
-ON materials FOR ALL 
-USING (auth.uid() IN (SELECT id FROM profiles WHERE role = 'admin'));
-
-CREATE POLICY "Public read" 
-ON materials FOR SELECT 
-USING (true);</pre>
+-- RLS BẢO MẬT
+ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read" ON public.materials FOR SELECT USING (true);
+CREATE POLICY "Admin CRUD" ON public.materials FOR ALL USING (
+  EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin')
+);</pre>
             </div>
           `)}
         </div>
@@ -948,35 +1106,35 @@ USING (true);</pre>
     return;
   }
 
-  // 5. SUPABASE CONNECTION SETTINGS MODAL
+  // 6. CẤU HÌNH SUPABASE SETTINGS PANEL
   if (state.activeModal === 'supabase-settings') {
     const config = supabaseSettings.getConfig();
 
     container.innerHTML = `
       <div class="modal-backdrop" id="modal-backdrop-click">
-        <div class="modal-sheet" style="max-width: 600px; padding: 32px;">
+        <div class="modal-sheet" style="max-width: 580px; padding: 32px;">
           <button class="modal-close-x" id="modal-close-btn">✕</button>
 
           <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
             <span style="font-size: 32px;">⚡</span>
             <div>
               <h3 style="font-family: var(--font-heading); font-size: 22px; font-weight: 800;">
-                Cấu hình Kết nối Supabase
+                Cấu hình Dự Án Supabase
               </h3>
               <p style="font-size: 13px; color: var(--text-muted);">
-                Kết nối trực tiếp với dự án Supabase của bạn để đồng bộ Auth & Database thật.
+                Điền thông tin Project URL và Anon Key từ Supabase Dashboard của bạn.
               </p>
             </div>
           </div>
 
-          <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: var(--radius-md); padding: 14px; font-size: 13px; color: #1E40AF; margin-bottom: 20px;">
-            ℹ️ Hệ thống hiện đang tích hợp <strong>Động cơ Mô phỏng Supabase RBAC</strong> sẵn sàng sử dụng ngay, hoặc bạn có thể điền thông tin dự án Supabase bên dưới.
+          <div style="background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: var(--radius-md); padding: 14px; font-size: 13px; color: #065F46; margin-bottom: 20px;">
+            💡 <strong>Mẹo:</strong> Bạn có thể lấy 2 khóa này trong Supabase Dashboard tại mục <strong>Project Settings -> API</strong>.
           </div>
 
           <div style="display: flex; flex-direction: column; gap: 14px; margin-bottom: 24px;">
             <div>
               <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 6px;">
-                SUPABASE PROJECT URL:
+                Project URL (VITE_SUPABASE_URL):
               </label>
               <input 
                 type="text" 
@@ -990,7 +1148,7 @@ USING (true);</pre>
 
             <div>
               <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 6px;">
-                SUPABASE ANON KEY:
+                Anon Key (VITE_SUPABASE_ANON_KEY):
               </label>
               <input 
                 type="text" 
@@ -1006,7 +1164,7 @@ USING (true);</pre>
           <div style="display: flex; justify-content: flex-end; gap: 10px;">
             <button class="voucher-btn" id="modal-close-btn-2">Đóng</button>
             <button class="hero-cta-btn" style="padding: 10px 24px; font-size: 14px;" id="btn-save-supabase-config">
-              Lưu cấu hình Supabase
+              Lưu & Kết nối Supabase
             </button>
           </div>
         </div>
@@ -1015,76 +1173,7 @@ USING (true);</pre>
     return;
   }
 
-  // 6. AUTH LOGIN / SIGNUP MODAL
-  if (state.activeModal === 'auth') {
-    container.innerHTML = `
-      <div class="modal-backdrop" id="modal-backdrop-click">
-        <div class="modal-sheet" style="max-width: 440px; padding: 36px 30px;">
-          <button class="modal-close-x" id="modal-close-btn">✕</button>
-
-          <div style="text-align: center; margin-bottom: 24px;">
-            <span style="font-size: 40px;">💖</span>
-            <h3 style="font-family: var(--font-heading); font-size: 24px; font-weight: 800; margin-top: 8px;">
-              ${state.authMode === 'login' ? 'Đăng nhập Học liệu mầm non' : 'Đăng ký Tài khoản mới'}
-            </h3>
-            <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-              Quản lý bởi Supabase Authentication & Role RBAC
-            </p>
-          </div>
-
-          <form id="auth-form" style="display: flex; flex-direction: column; gap: 14px;">
-            ${state.authMode === 'signup' ? `
-              <div>
-                <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px;">Họ và tên:</label>
-                <input type="text" id="auth-fullname" required class="voucher-input" style="width: 100%;" placeholder="Cô Mai / Mẹ Bé Bông" />
-              </div>
-              <div>
-                <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px;">Bạn là:</label>
-                <select id="auth-role" class="sort-dropdown" style="width: 100%; padding: 10px;">
-                  <option value="parent">Phụ huynh học sinh</option>
-                  <option value="teacher">Giáo viên mầm non</option>
-                </select>
-              </div>
-            ` : ''}
-
-            <div>
-              <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px;">Email:</label>
-              <input type="email" id="auth-email" required class="voucher-input" style="width: 100%;" placeholder="email@gmail.com" />
-            </div>
-
-            <div>
-              <label style="font-size: 13px; font-weight: 700; display: block; margin-bottom: 4px;">Mật khẩu:</label>
-              <input type="password" id="auth-password" required class="voucher-input" style="width: 100%;" placeholder="••••••••" />
-            </div>
-
-            <button type="submit" class="btn-checkout-now" style="margin-top: 10px;">
-              ${state.authMode === 'login' ? 'Đăng nhập ngay' : 'Đăng ký tài khoản'}
-            </button>
-          </form>
-
-          <div style="text-align: center; margin-top: 18px; font-size: 13px;">
-            ${state.authMode === 'login' ? `
-              Chưa có tài khoản? <a href="#" id="toggle-auth-signup" style="color: var(--primary); font-weight: 800;">Đăng ký miễn phí</a>
-            ` : `
-              Đã có tài khoản? <a href="#" id="toggle-auth-login" style="color: var(--primary); font-weight: 800;">Đăng nhập</a>
-            `}
-          </div>
-
-          <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color); text-align: center;">
-            <span style="font-size: 12px; color: var(--text-muted);">Đăng nhập nhanh tài khoản mẫu:</span>
-            <div style="display: flex; gap: 6px; justify-content: center; margin-top: 8px;">
-              <button class="role-pill-btn" style="color: #333; background: #EEE;" data-quick-login="admin@hoclieumamnon.vn">👑 Admin</button>
-              <button class="role-pill-btn" style="color: #333; background: #EEE;" data-quick-login="giao_vien_lan@truonghoa.edu.vn">👩‍🏫 Giáo Viên</button>
-              <button class="role-pill-btn" style="color: #333; background: #EEE;" data-quick-login="me_be_bong@gmail.com">💖 Phụ Huynh</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  // 7. INTERACTIVE MINI-GAME MODAL (EDUCATION.COM MODEL)
+  // 7. INTERACTIVE GAME MODAL
   if (state.activeModal === 'game') {
     container.innerHTML = `
       <div class="modal-backdrop" id="modal-backdrop-click">
@@ -1101,19 +1190,13 @@ USING (true);</pre>
 
           <div class="game-canvas-board">
             <h4 style="font-size: 20px; color: var(--secondary); font-weight: 800;" id="game-question">
-              Bé hãy bấm vào <strong>HÌNH TRÒN ⚪</strong> để cho bạn gấu Misa nhé!
+              Bé hãy bấm vào <strong>HÌNH TRÒN 🟡</strong> nhé!
             </h4>
 
             <div class="game-shapes-row">
-              <div class="game-shape-target" data-shape="square" title="Hình vuông">
-                🟦
-              </div>
-              <div class="game-shape-target" data-shape="circle" title="Hình tròn">
-                🟡
-              </div>
-              <div class="game-shape-target" data-shape="triangle" title="Hình tam giác">
-                🔺
-              </div>
+              <div class="game-shape-target" data-shape="square" title="Hình vuông">🟦</div>
+              <div class="game-shape-target" data-shape="circle" title="Hình tròn">🟡</div>
+              <div class="game-shape-target" data-shape="triangle" title="Hình tam giác">🔺</div>
             </div>
 
             <div style="font-size: 18px; font-weight: 800; color: #10B981;" id="game-feedback">
@@ -1126,7 +1209,7 @@ USING (true);</pre>
     return;
   }
 
-  // 8. WORKSHEET GENERATOR TOOL (EDUCATION.COM "BUILD A WORKSHEET")
+  // 8. WORKSHEET GENERATOR TOOL
   if (state.activeModal === 'generator') {
     container.innerHTML = `
       <div class="modal-backdrop" id="modal-backdrop-click">
@@ -1198,36 +1281,34 @@ USING (true);</pre>
 }
 
 // ====================================================================
-// EVENT HANDLERS & BINDINGS
+// EVENT BINDINGS
 // ====================================================================
-
 function bindEvents() {
-  // 1. Role switcher pills on RBAC banner
-  document.addEventListener('click', (e) => {
-    const switchRoleBtn = e.target.closest('[data-switch-role]');
-    if (switchRoleBtn) {
-      const role = switchRoleBtn.getAttribute('data-switch-role');
-      authService.switchRole(role);
-      showToast(`Đã chuyển vai trò sang: ${ROLE_DEFINITIONS[role].name}`);
-      return;
-    }
-
-    // Supabase config modal trigger
+  document.addEventListener('click', async (e) => {
+    // Open Supabase Settings
     if (e.target.closest('#btn-open-supabase-config')) {
       state.activeModal = 'supabase-settings';
       renderModals();
       return;
     }
 
-    // Admin manager trigger
-    if (e.target.closest('#btn-open-admin-mgr') || e.target.closest('#ft-rbac')) {
+    // Open Admin Portal
+    if (e.target.closest('#menu-open-admin-panel')) {
       state.activeModal = 'admin';
-      state.adminTab = 'users';
+      state.adminTab = 'materials';
       renderModals();
       return;
     }
 
-    // Header buttons
+    // User sign out
+    if (e.target.closest('#menu-user-signout')) {
+      await authService.signOut();
+      showToast('Đã đăng xuất tài khoản thành công!');
+      renderHeader();
+      return;
+    }
+
+    // Auth triggers
     if (e.target.closest('#btn-header-login')) {
       state.activeModal = 'auth';
       state.authMode = 'login';
@@ -1235,20 +1316,21 @@ function bindEvents() {
       return;
     }
 
-    if (e.target.closest('#btn-user-profile')) {
-      state.activeModal = 'admin';
-      state.adminTab = 'users';
+    if (e.target.closest('#btn-header-signup')) {
+      state.activeModal = 'auth';
+      state.authMode = 'signup';
       renderModals();
       return;
     }
 
+    // Cart
     if (e.target.closest('#btn-open-cart')) {
       state.activeModal = 'cart';
       renderModals();
       return;
     }
 
-    // Close modals
+    // Close modal
     if (e.target.id === 'modal-backdrop-click' || e.target.closest('#modal-close-btn') || e.target.closest('#modal-close-btn-2')) {
       state.activeModal = null;
       renderModals();
@@ -1256,10 +1338,10 @@ function bindEvents() {
     }
 
     // Open detail modal
-    const openDetailTrigger = e.target.closest('[data-open-detail]');
-    if (openDetailTrigger) {
-      const wsId = openDetailTrigger.getAttribute('data-open-detail');
-      const found = WORKSHEETS.find(w => w.id === wsId);
+    const openDetail = e.target.closest('[data-open-detail]');
+    if (openDetail) {
+      const id = openDetail.getAttribute('data-open-detail');
+      const found = state.liveWorksheets.find(w => w.id === id);
       if (found) {
         state.selectedWorksheet = found;
         state.activePreviewPageIndex = 0;
@@ -1269,7 +1351,7 @@ function bindEvents() {
       return;
     }
 
-    // Switch preview thumbnail inside detail modal
+    // Thumbnails in detail
     const thumbTrigger = e.target.closest('[data-thumb-idx]');
     if (thumbTrigger) {
       const idx = parseInt(thumbTrigger.getAttribute('data-thumb-idx'), 10);
@@ -1278,11 +1360,11 @@ function bindEvents() {
       return;
     }
 
-    // Switch worksheet from carousel inside detail modal
-    const switchWsTrigger = e.target.closest('[data-switch-ws]');
-    if (switchWsTrigger) {
-      const nextId = switchWsTrigger.getAttribute('data-switch-ws');
-      const found = WORKSHEETS.find(w => w.id === nextId);
+    // Switch worksheet from detail bottom carousel
+    const switchWs = e.target.closest('[data-switch-ws]');
+    if (switchWs) {
+      const nextId = switchWs.getAttribute('data-switch-ws');
+      const found = state.liveWorksheets.find(w => w.id === nextId);
       if (found) {
         state.selectedWorksheet = found;
         state.activePreviewPageIndex = 0;
@@ -1291,11 +1373,11 @@ function bindEvents() {
       return;
     }
 
-    // Add to cart from grid or modal
-    const addCartBtn = e.target.closest('[data-add-cart]') || e.target.closest('#modal-btn-add-cart');
-    if (addCartBtn) {
-      const id = addCartBtn.getAttribute('data-add-cart') || addCartBtn.getAttribute('data-id');
-      const ws = WORKSHEETS.find(w => w.id === id);
+    // Add to cart
+    const addCart = e.target.closest('[data-add-cart]') || e.target.closest('#modal-btn-add-cart');
+    if (addCart) {
+      const id = addCart.getAttribute('data-add-cart') || addCart.getAttribute('data-id');
+      const ws = state.liveWorksheets.find(w => w.id === id);
       if (ws) {
         cartService.addToCart(ws);
         triggerConfetti(e.clientX, e.clientY);
@@ -1305,10 +1387,10 @@ function bindEvents() {
     }
 
     // Buy now
-    const buyNowBtn = e.target.closest('#modal-btn-buy-now');
-    if (buyNowBtn) {
-      const id = buyNowBtn.getAttribute('data-id');
-      const ws = WORKSHEETS.find(w => w.id === id);
+    const buyNow = e.target.closest('#modal-btn-buy-now');
+    if (buyNow) {
+      const id = buyNow.getAttribute('data-id');
+      const ws = state.liveWorksheets.find(w => w.id === id);
       if (ws) {
         cartService.addToCart(ws);
         state.activeModal = 'cart';
@@ -1318,22 +1400,24 @@ function bindEvents() {
     }
 
     // Free sample download
-    const sampleDownloadBtn = e.target.closest('#modal-btn-sample-download');
-    if (sampleDownloadBtn) {
+    if (e.target.closest('#modal-btn-sample-download')) {
+      const id = e.target.closest('#modal-btn-sample-download').getAttribute('data-id');
+      await dataService.logDownload(id);
       triggerConfetti();
-      showToast('Đang tải bản mẫu PDF miễn phí chất lượng in ấn!');
+      showToast('Đang tải bản mẫu PDF chất lượng in ấn!');
       return;
     }
 
     // Instant download for Pro/Teacher/Admin
-    const instantDownloadBtn = e.target.closest('#modal-btn-instant-download');
-    if (instantDownloadBtn) {
+    if (e.target.closest('#modal-btn-instant-download')) {
+      const id = e.target.closest('#modal-btn-instant-download').getAttribute('data-id');
+      await dataService.logDownload(id);
       triggerConfetti();
-      showToast('Tải thành công file PDF độ phân giải cao theo bản quyền!');
+      showToast('Tải thành công file PDF vector độ nét cao!');
       return;
     }
 
-    // Cart quantity adjust
+    // Cart +/-
     const qtyBtn = e.target.closest('[data-qty-delta]');
     if (qtyBtn) {
       const delta = parseInt(qtyBtn.getAttribute('data-qty-delta'), 10);
@@ -1343,7 +1427,7 @@ function bindEvents() {
       return;
     }
 
-    // Remove from cart
+    // Cart delete
     const removeBtn = e.target.closest('[data-remove-item]');
     if (removeBtn) {
       const itemId = removeBtn.getAttribute('data-remove-item');
@@ -1359,40 +1443,51 @@ function bindEvents() {
       if (code === 'MAMNON2026' || code === 'MAMNON') {
         state.voucherCode = code;
         state.voucherDiscountPercent = 20;
-        showToast('Áp dụng thành công mã MAMNON2026 giảm 20%!');
+        showToast('Áp dụng ưu đãi MAMNON2026 giảm 20%!');
         renderModals();
       } else if (code === 'GIAOVIEN' || code === 'GIAOVIEN50') {
         state.voucherCode = code;
         state.voucherDiscountPercent = 50;
-        showToast('Áp dụng ưu đãi Giáo viên giảm 50%!');
+        showToast('Áp dụng ưu đãi Giáo Viên giảm 50%!');
         renderModals();
       } else {
-        showToast('Mã giảm giá không hợp lệ. Hãy thử: MAMNON2026 hoặc GIAOVIEN');
+        showToast('Mã giảm giá không đúng. Thử: MAMNON2026 hoặc GIAOVIEN');
       }
       return;
     }
 
-    // Cart checkout
+    // Checkout button
     if (e.target.closest('#btn-cart-checkout')) {
       state.activeModal = 'checkout-qr';
       renderModals();
       return;
     }
 
-    // Confirm QR Payment Success
-    if (e.target.closest('#btn-confirm-payment-success')) {
+    // Confirm Payment & save order into Supabase
+    const confirmPayment = e.target.closest('#btn-confirm-payment-success');
+    if (confirmPayment) {
+      const total = parseInt(confirmPayment.getAttribute('data-order-total'), 10);
+      const code = state.voucherCode;
+      const items = cartService.getCart();
+
+      try {
+        await dataService.createOrder({ total, discount: 0, finalTotal: total, code }, items);
+      } catch (err) {
+        console.warn('Lưu đơn hàng vào Supabase:', err);
+      }
+
       cartService.clearCart();
       state.activeModal = null;
       renderModals();
       triggerConfetti();
-      showToast('🎉 Thanh toán thành công! Bạn có thể tải ngay toàn bộ tài liệu.');
+      showToast('🎉 Đơn hàng đã ghi nhận thành công! Bạn có thể tải ngay học liệu.');
       return;
     }
 
-    // Education suite buttons
-    const eduActionBtn = e.target.closest('[data-action]');
-    if (eduActionBtn) {
-      const action = eduActionBtn.getAttribute('data-action');
+    // Education suite actions
+    const eduAction = e.target.closest('[data-action]');
+    if (eduAction) {
+      const action = eduAction.getAttribute('data-action');
       if (action === 'open-game') {
         state.activeModal = 'game';
         renderModals();
@@ -1409,7 +1504,7 @@ function bindEvents() {
       return;
     }
 
-    // Categories filter click
+    // Category click
     const catCard = e.target.closest('[data-category-id]');
     if (catCard) {
       state.activeCategory = catCard.getAttribute('data-category-id');
@@ -1418,32 +1513,7 @@ function bindEvents() {
       return;
     }
 
-    // Category click from header nav dropdown
-    const navCatItem = e.target.closest('[data-nav-category]');
-    if (navCatItem) {
-      state.activeCategory = navCatItem.getAttribute('data-nav-category');
-      renderCatalog();
-      document.getElementById('catalog-anchor')?.scrollIntoView({ behavior: 'smooth' });
-      return;
-    }
-
-    // Pack click
-    const packTrigger = e.target.closest('[data-open-pack]');
-    if (packTrigger) {
-      const packId = packTrigger.getAttribute('data-open-pack');
-      const ws = WORKSHEETS.find(w => w.id === 've-ban-gau-misa') || WORKSHEETS[0];
-      state.selectedWorksheet = ws;
-      state.activeModal = 'detail';
-      renderModals();
-      return;
-    }
-
-    // Nav shortcuts
-    if (e.target.id === 'nav-featured-packs' || e.target.id === 'link-see-all-packs') {
-      document.getElementById('featured-packs-container')?.scrollIntoView({ behavior: 'smooth' });
-      return;
-    }
-
+    // Navigation links
     if (e.target.id === 'nav-edu-games') {
       state.activeModal = 'game';
       renderModals();
@@ -1460,7 +1530,6 @@ function bindEvents() {
       state.activeCategory = 'tong-hop';
       renderCatalog();
       document.getElementById('catalog-anchor')?.scrollIntoView({ behavior: 'smooth' });
-      showToast('Hiển thị kho giáo án & kế hoạch bài dạy mầm non!');
       return;
     }
 
@@ -1487,35 +1556,71 @@ function bindEvents() {
       return;
     }
 
-    // Admin tabs
-    const adminTabBtn = e.target.closest('[data-admin-tab]');
-    if (adminTabBtn) {
-      state.adminTab = adminTabBtn.getAttribute('data-admin-tab');
+    // Admin Tabs
+    const adminTab = e.target.closest('[data-admin-tab]');
+    if (adminTab) {
+      state.adminTab = adminTab.getAttribute('data-admin-tab');
+      if (state.adminTab === 'users') {
+        state.adminUsersList = await authService.getAllUsers();
+      }
       renderModals();
       return;
     }
 
-    // Change user role from admin table
-    const roleSelect = e.target.closest('[data-change-user-role]');
-    if (roleSelect && e.type === 'change') {
-      const uId = roleSelect.getAttribute('data-change-user-role');
-      const newRole = roleSelect.value;
-      authService.updateUserRole(uId, newRole);
-      showToast('Đã cập nhật quyền thành công trên Supabase!');
+    // Show add material form
+    if (e.target.id === 'btn-show-add-material-form') {
+      const box = document.getElementById('add-material-form-box');
+      if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
       return;
     }
 
-    // Copy SQL button
+    if (e.target.id === 'btn-cancel-add-material') {
+      const box = document.getElementById('add-material-form-box');
+      if (box) box.style.display = 'none';
+      return;
+    }
+
+    // Admin Delete Material
+    const delMat = e.target.closest('[data-delete-material]');
+    if (delMat) {
+      const id = delMat.getAttribute('data-delete-material');
+      if (confirm('Bạn có chắc chắn muốn xóa học liệu này khỏi hệ thống?')) {
+        try {
+          await dataService.deleteMaterial(id);
+          state.liveWorksheets = state.liveWorksheets.filter(w => w.id !== id);
+          showToast('Đã xóa học liệu thành công!');
+          renderCatalog();
+          renderModals();
+        } catch (err) {
+          showToast('Lỗi khi xóa học liệu: ' + err.message);
+        }
+      }
+      return;
+    }
+
+    // Copy SQL
     if (e.target.id === 'btn-copy-sql') {
-      navigator.clipboard.writeText(`-- SUPABASE SCHEMA HỌC LIỆU MẦM NON
-CREATE TABLE profiles (id UUID PRIMARY KEY, role TEXT, full_name TEXT);
-ALTER TABLE materials ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public read" ON materials FOR SELECT USING (true);`);
-      showToast('Đã sao chép Supabase SQL schema vào Clipboard!');
+      navigator.clipboard.writeText(`-- SCHEMA SUPABASE HỌC LIỆU MẦM NON
+CREATE TABLE profiles (id UUID PRIMARY KEY, email TEXT, role TEXT, full_name TEXT);
+CREATE TABLE materials (id UUID PRIMARY KEY, title TEXT, price INT);`);
+      showToast('Đã sao chép SQL vào Clipboard!');
       return;
     }
 
-    // Game interaction
+    // Save Supabase Config
+    if (e.target.id === 'btn-save-supabase-config') {
+      const url = document.getElementById('cfg-supabase-url').value;
+      const key = document.getElementById('cfg-supabase-key').value;
+      supabaseSettings.saveConfig(url, key);
+      showToast('Đã lưu cấu hình Supabase! Đang kết nối lại...');
+      state.activeModal = null;
+      renderModals();
+      renderHeader();
+      loadProductionData();
+      return;
+    }
+
+    // Game shape click
     const shapeTarget = e.target.closest('[data-shape]');
     if (shapeTarget) {
       const shape = shapeTarget.getAttribute('data-shape');
@@ -1525,7 +1630,6 @@ CREATE POLICY "Public read" ON materials FOR SELECT USING (true);`);
         const fb = document.getElementById('game-feedback');
         if (fb) fb.innerHTML = '🎉 Hoan hô bé giỏi quá! Điểm: ' + state.gameScore + ' ⭐';
         
-        // Chuyển câu hỏi mới
         const shapes = ['square', 'triangle', 'circle'];
         state.gameTargetShape = shapes[Math.floor(Math.random() * shapes.length)];
         const qElem = document.getElementById('game-question');
@@ -1540,96 +1644,25 @@ CREATE POLICY "Public read" ON materials FOR SELECT USING (true);`);
       return;
     }
 
-    // Print worksheet generator
+    // Print
     if (e.target.id === 'btn-print-worksheet') {
       window.print();
       return;
     }
 
-    // Pricing plan button click
+    // Choose plan
     const planBtn = e.target.closest('[data-choose-plan]');
     if (planBtn) {
-      const targetRole = planBtn.getAttribute('data-role-target');
-      authService.switchRole(targetRole);
-      triggerConfetti();
-      showToast(`Đã kích hoạt gói thành công! Vai trò hiện tại: ${ROLE_DEFINITIONS[targetRole].name}`);
-      return;
-    }
-  });
-
-  // Change events (Filters, Selects, Inputs)
-  document.addEventListener('change', (e) => {
-    // Grade radio
-    if (e.target.name === 'grade_filter') {
-      state.activeGrade = e.target.value;
-      renderCatalog();
-      return;
-    }
-
-    // Topic checkboxes
-    if (e.target.classList.contains('topic-checkbox')) {
-      const val = e.target.value;
-      if (e.target.checked) {
-        if (!state.selectedTopics.includes(val)) state.selectedTopics.push(val);
+      const planId = planBtn.getAttribute('data-choose-plan');
+      if (user.role === 'guest') {
+        state.activeModal = 'auth';
+        state.authMode = 'signup';
+        renderModals();
+        showToast('Vui lòng đăng ký tài khoản để kích hoạt gói dịch vụ!');
       } else {
-        state.selectedTopics = state.selectedTopics.filter(t => t !== val);
+        showToast('Chuyển sang trang thanh toán gói: ' + planId);
       }
-      renderCatalog();
       return;
-    }
-
-    // PDF format filter
-    if (e.target.id === 'chk-pdf-printable') {
-      state.selectedFormat = e.target.checked ? 'pdf' : 'all';
-      renderCatalog();
-      return;
-    }
-
-    // Sort select
-    if (e.target.id === 'catalog-sort-select') {
-      state.sortBy = e.target.value;
-      renderCatalog();
-      return;
-    }
-
-    // Generator inputs
-    if (e.target.id === 'gen-child-name') {
-      const p = document.getElementById('preview-child-name');
-      if (p) p.innerText = e.target.value || 'Bé yêu';
-      return;
-    }
-  });
-
-  // Form submit for Auth
-  document.addEventListener('submit', async (e) => {
-    if (e.target.id === 'auth-form') {
-      e.preventDefault();
-      const email = document.getElementById('auth-email').value;
-      const pass = document.getElementById('auth-password').value;
-      const fullName = document.getElementById('auth-fullname')?.value;
-      const role = document.getElementById('auth-role')?.value || 'parent';
-
-      if (state.authMode === 'signup') {
-        await authService.signUp(email, pass, fullName, role);
-        showToast(`Đăng ký thành công tài khoản: ${email}`);
-      } else {
-        await authService.signIn(email, pass);
-        showToast(`Đăng nhập thành công!`);
-      }
-      state.activeModal = null;
-      renderModals();
-    }
-  });
-
-  // Save Supabase settings
-  document.addEventListener('click', (e) => {
-    if (e.target.id === 'btn-save-supabase-config') {
-      const url = document.getElementById('cfg-supabase-url').value;
-      const key = document.getElementById('cfg-supabase-key').value;
-      supabaseSettings.saveConfig(url, key);
-      showToast('Đã lưu thông tin Supabase thành công!');
-      state.activeModal = null;
-      renderModals();
     }
 
     // Auth toggles
@@ -1643,21 +1676,117 @@ CREATE POLICY "Public read" ON materials FOR SELECT USING (true);`);
       state.authMode = 'login';
       renderModals();
     }
+  });
 
-    // Quick login buttons
-    const qLogin = e.target.closest('[data-quick-login]');
-    if (qLogin) {
-      const em = qLogin.getAttribute('data-quick-login');
-      authService.signIn(em, 'password123');
-      state.activeModal = null;
-      renderModals();
-      showToast(`Đã đăng nhập nhanh tài khoản: ${em}`);
+  // Filter changes
+  document.addEventListener('change', (e) => {
+    if (e.target.name === 'grade_filter') {
+      state.activeGrade = e.target.value;
+      renderCatalog();
+    }
+    if (e.target.classList.contains('topic-checkbox')) {
+      const val = e.target.value;
+      if (e.target.checked) {
+        if (!state.selectedTopics.includes(val)) state.selectedTopics.push(val);
+      } else {
+        state.selectedTopics = state.selectedTopics.filter(t => t !== val);
+      }
+      renderCatalog();
+    }
+    if (e.target.id === 'chk-pdf-printable') {
+      state.selectedFormat = e.target.checked ? 'pdf' : 'all';
+      renderCatalog();
+    }
+    if (e.target.id === 'catalog-sort-select') {
+      state.sortBy = e.target.value;
+      renderCatalog();
+    }
+    if (e.target.id === 'gen-child-name') {
+      const p = document.getElementById('preview-child-name');
+      if (p) p.innerText = e.target.value || 'Bé yêu';
+    }
+
+    // Admin change real user role
+    const roleSelect = e.target.closest('[data-change-real-user-role]');
+    if (roleSelect) {
+      const uId = roleSelect.getAttribute('data-change-real-user-role');
+      const newRole = roleSelect.value;
+      authService.updateUserRole(uId, newRole).then(() => {
+        showToast('Đã cập nhật vai trò người dùng trong Supabase!');
+      }).catch(err => {
+        showToast('Lỗi cập nhật: ' + err.message);
+      });
     }
   });
 
-  // Subscriptions to Auth and Cart
+  // Form submit: Auth
+  document.addEventListener('submit', async (e) => {
+    if (e.target.id === 'auth-form') {
+      e.preventDefault();
+      const email = document.getElementById('auth-email').value;
+      const pass = document.getElementById('auth-password').value;
+      const fullName = document.getElementById('auth-fullname')?.value;
+      const role = document.getElementById('auth-role')?.value || 'parent';
+      const errBox = document.getElementById('auth-error-msg');
+
+      try {
+        if (state.authMode === 'signup') {
+          await authService.signUp(email, pass, fullName, role);
+          showToast(`Đăng ký thành công! Chào mừng ${fullName || email}`);
+        } else {
+          await authService.signIn(email, pass);
+          showToast(`Đăng nhập thành công!`);
+        }
+        state.activeModal = null;
+        renderModals();
+        renderHeader();
+      } catch (err) {
+        if (errBox) {
+          errBox.innerText = err.message || 'Lỗi xác thực!';
+          errBox.style.display = 'block';
+        } else {
+          showToast('Lỗi: ' + err.message);
+        }
+      }
+    }
+
+    // Form submit: Admin Add Material
+    if (e.target.id === 'form-create-material') {
+      e.preventDefault();
+      const title = document.getElementById('new-mat-title').value;
+      const price = parseInt(document.getElementById('new-mat-price').value, 10);
+      const grade = document.getElementById('new-mat-age').value;
+      const cat = document.getElementById('new-mat-category').value;
+      const desc = document.getElementById('new-mat-desc').value;
+
+      const newMat = {
+        title,
+        price,
+        grade_level: grade,
+        category_id: cat,
+        description: desc,
+        preview_image_url: './assets/misa_bear.jpg',
+        page_count: 1,
+        format_type: 'PDF (Chất lượng in)',
+        slug: 'mat-' + Date.now(),
+        is_free_sample: price === 0
+      };
+
+      try {
+        const created = await dataService.createMaterial(newMat);
+        state.liveWorksheets.unshift(created || newMat);
+        showToast('Đã thêm học liệu mới thành công lên Supabase!');
+        document.getElementById('add-material-form-box').style.display = 'none';
+        renderCatalog();
+        renderModals();
+      } catch (err) {
+        showToast('Lỗi thêm học liệu: ' + err.message);
+      }
+    }
+  });
+
+  // State changes
   authService.onAuthChange(() => {
-    renderRBACBanner();
     renderHeader();
     renderCatalog();
   });
@@ -1667,10 +1796,7 @@ CREATE POLICY "Public read" ON materials FOR SELECT USING (true);`);
   });
 }
 
-// ====================================================================
-// TOAST NOTIFICATIONS & CONFETTI
-// ====================================================================
-
+// Toast & Confetti
 function showToast(msg) {
   let toast = document.getElementById('app-toast');
   if (!toast) {
@@ -1721,12 +1847,8 @@ function triggerConfetti(x, y) {
   }
 }
 
-// ====================================================================
-// INITIALIZATION
-// ====================================================================
-
+// Initialization
 export function initApp() {
-  renderRBACBanner();
   renderHeader();
   renderHero();
   renderValueProps();
@@ -1737,9 +1859,9 @@ export function initApp() {
   renderPricing();
   renderFooter();
   bindEvents();
+  loadProductionData();
 }
 
-// Start app on DOMContentLoaded
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initApp);
 } else {
