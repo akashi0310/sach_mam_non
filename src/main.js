@@ -106,11 +106,6 @@ function renderHeader() {
       </ul>
 
       <div class="header-actions">
-        <!-- Nút Trạng thái Supabase -->
-        <button class="supabase-btn-trigger" id="btn-open-supabase-config" style="background: ${isConnected ? '#10B981' : '#F59E0B'}; font-size: 12px; padding: 6px 12px;">
-          <span>${isConnected ? '⚡ Supabase Live' : '⚙️ Kết nối Supabase'}</span>
-        </button>
-
         <button class="search-toggle-btn" id="btn-open-search" title="Tìm kiếm">🔍</button>
 
         <div class="cart-btn-wrapper">
@@ -1860,6 +1855,15 @@ export function initApp() {
   renderFooter();
   bindEvents();
   loadProductionData();
+
+  // Tự động đồng bộ và cập nhật dữ liệu từ Supabase mỗi 15 giây
+  setInterval(async () => {
+    try {
+      await loadProductionData();
+    } catch (e) {
+      // background sync
+    }
+  }, 15000);
 }
 
 if (document.readyState === 'loading') {
