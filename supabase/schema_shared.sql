@@ -127,3 +127,29 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- ====================================================================
+-- KHÓA BẢO VỆ ĐẶC QUYỀN DUY NHẤT: CHỈ HOANGMAT0604@GMAIL.COM LÀ ADMIN
+-- Toàn bộ tài khoản khác chỉ được phép là 'parent' hoặc 'teacher'
+-- ====================================================================
+CREATE OR REPLACE FUNCTION public.protect_admin_role()
+RETURNS trigger AS $$
+BEGIN
+    -- Nếu vai trò là admin nhưng email không phải của bạn
+    IF NEW.role = 'admin' AND LOWER(NEW.email) != 'hoangmat0604@gmail.com' THEN
+        -- Tự động hạ cấp về 'parent'
+        NEW.role := 'parent';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_protect_admin_role ON public.hl_profiles;
+CREATE TRIGGER trg_protect_admin_role
+    BEFORE INSERT OR UPDATE ON public.hl_profiles
+    FOR EACH ROW EXECUTE PROCEDURE public.protect_admin_role();
+
+-- Đảm bảo hoangmat0604@gmail.com chắc chắn là admin
+UPDATE public.hl_profiles 
+SET role = 'admin' 
+WHERE LOWER(email) = 'hoangmat0604@gmail.com';
