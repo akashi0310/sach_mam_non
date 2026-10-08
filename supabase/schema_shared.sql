@@ -84,10 +84,12 @@ ALTER TABLE public.hl_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hl_order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.hl_download_logs ENABLE ROW LEVEL SECURITY;
 
--- POLICIES CHO PHÉP XEM HỌC LIỆU CÔNG KHAI
+-- POLICIES CHO PHÉP XEM HỌC LIỆU CÔNG KHAI VÀ GHI DỮ LIỆU
 CREATE POLICY "Public read hl_materials" ON public.hl_materials FOR SELECT USING (true);
 CREATE POLICY "Public read hl_categories" ON public.hl_categories FOR SELECT USING (true);
 CREATE POLICY "Public read hl_profiles" ON public.hl_profiles FOR SELECT USING (true);
+CREATE POLICY "Public insert hl_profiles" ON public.hl_profiles FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public update hl_profiles" ON public.hl_profiles FOR UPDATE USING (true);
 CREATE POLICY "Public insert hl_orders" ON public.hl_orders FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public insert hl_order_items" ON public.hl_order_items FOR INSERT WITH CHECK (true);
 CREATE POLICY "Public insert hl_download_logs" ON public.hl_download_logs FOR INSERT WITH CHECK (true);
@@ -99,3 +101,29 @@ INSERT INTO public.hl_categories (id, name, description, color_accent, display_o
 ('chu-cai', 'Làm quen chữ cái', 'Bảng chữ cái tiếng Việt, tập tô nét', '#10B981', 3),
 ('the-gioi', 'Thế giới xung quanh', 'Khám phá động thực vật, tự nhiên', '#F59E0B', 4)
 ON CONFLICT (id) DO NOTHING;
+
+-- TRIGGER AN TOÀN TUYỆT ĐỐI (EXCEPTION BẢO VỆ KHÔNG BAO GIỜ LÀM LỖI ĐĂNG KÝ AUTH)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+    BEGIN
+        INSERT INTO public.hl_profiles (id, email, full_name, role)
+        VALUES (
+            new.id,
+            new.email,
+            COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+            COALESCE(new.raw_user_meta_data->>'role', 'parent')
+        )
+        ON CONFLICT (id) DO NOTHING;
+    EXCEPTION WHEN OTHERS THEN
+        -- Bỏ qua nếu có xung đột, không làm gián đoạn transaction auth.users
+        NULL;
+    END;
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
