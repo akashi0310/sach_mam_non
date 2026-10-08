@@ -10,19 +10,40 @@ import { CATEGORIES as SEED_CATEGORIES, WORKSHEETS as SEED_WORKSHEETS } from '..
 const STORAGE_CONFIG_KEY = 'hoclieu_supabase_real_config';
 const STORAGE_CART_KEY = 'hoclieu_cart';
 
+// Tự động chuẩn hóa Supabase URL (chỉ lấy origin gốc https://xxx.supabase.co, loại bỏ triệt để /rest/v1, /auth/v1, dấu gạch chéo)
+export function cleanSupabaseUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  let u = rawUrl.trim();
+  if (!u) return '';
+  if (!u.startsWith('http://') && !u.startsWith('https://')) {
+    u = 'https://' + u;
+  }
+  try {
+    const parsed = new URL(u);
+    return parsed.origin;
+  } catch (e) {
+    u = u.replace(/\/rest\/v1\/?$/i, '');
+    u = u.replace(/\/auth\/v1\/?$/i, '');
+    u = u.replace(/\/+$/, '');
+    return u;
+  }
+}
+
 const savedConfig = JSON.parse(localStorage.getItem(STORAGE_CONFIG_KEY) || '{}');
 
 export const supabaseConfig = {
-  url: import.meta.env?.VITE_SUPABASE_URL || savedConfig.url || '',
-  anonKey: import.meta.env?.VITE_SUPABASE_ANON_KEY || savedConfig.anonKey || ''
+  url: cleanSupabaseUrl(import.meta.env?.VITE_SUPABASE_URL || savedConfig.url || ''),
+  anonKey: (import.meta.env?.VITE_SUPABASE_ANON_KEY || savedConfig.anonKey || '').trim()
 };
 
 // Khởi tạo Supabase client chính thức
 export let supabase = null;
 export function initSupabaseClient(url, anonKey) {
-  if (url && anonKey && url.startsWith('https://')) {
+  const cleanUrl = cleanSupabaseUrl(url);
+  const cleanKey = anonKey ? anonKey.trim() : '';
+  if (cleanUrl && cleanKey && cleanUrl.startsWith('https://')) {
     try {
-      supabase = createClient(url, anonKey, {
+      supabase = createClient(cleanUrl, cleanKey, {
         auth: {
           persistSession: true,
           autoRefreshToken: true
@@ -579,7 +600,7 @@ export const supabaseSettings = {
   },
 
   saveConfig(url, anonKey) {
-    const trimmedUrl = url.trim();
+    const trimmedUrl = cleanSupabaseUrl(url);
     const trimmedKey = anonKey.trim();
     localStorage.setItem(STORAGE_CONFIG_KEY, JSON.stringify({ url: trimmedUrl, anonKey: trimmedKey }));
     supabaseConfig.url = trimmedUrl;
