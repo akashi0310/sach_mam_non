@@ -118,17 +118,33 @@ if (supabase) {
   });
 }
 
-// Lấy thông tin profile từ bảng `public.profiles` trong Supabase
+// Lấy thông tin profile từ bảng `hl_profiles` (hoặc `profiles`) trong Supabase
 async function fetchUserProfile(authUser) {
   try {
     if (!supabase) return;
-    const { data: profile, error } = await supabase
-      .from('profiles')
+    let profile = null;
+    let error = null;
+
+    const hlRes = await supabase
+      .from('hl_profiles')
       .select('*')
       .eq('id', authUser.id)
-      .single();
+      .maybeSingle();
 
-    if (profile && !error) {
+    if (!hlRes.error && hlRes.data) {
+      profile = hlRes.data;
+    } else {
+      const stdRes = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .maybeSingle();
+      if (!stdRes.error && stdRes.data) {
+        profile = stdRes.data;
+      }
+    }
+
+    if (profile) {
       currentUser = {
         id: authUser.id,
         email: authUser.email,
@@ -179,7 +195,7 @@ export const authService = {
 
   async signUp(email, password, fullName, requestedRole = 'parent') {
     if (!supabase) {
-      throw new Error('Chưa cấu hình Supabase! Vui lòng nhấn nút "Cài đặt Supabase" ở góc trên bên phải để điền URL và Anon Key.');
+      throw new Error('Chưa cấu hình Supabase! Vui lòng cấu hình VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY trên Netlify.');
     }
 
     const { data, error } = await supabase.auth.signUp({
@@ -198,12 +214,20 @@ export const authService = {
     // Cập nhật profile nếu trigger chưa tạo
     if (data.user) {
       try {
-        await supabase.from('profiles').upsert({
+        const hlUpsert = await supabase.from('hl_profiles').upsert({
           id: data.user.id,
           email: data.user.email,
           full_name: fullName,
           role: requestedRole
         });
+        if (hlUpsert.error) {
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            email: data.user.email,
+            full_name: fullName,
+            role: requestedRole
+          });
+        }
       } catch (e) {
         console.warn('Profile upsert note:', e);
       }
@@ -215,7 +239,7 @@ export const authService = {
 
   async signIn(email, password) {
     if (!supabase) {
-      throw new Error('Chưa cấu hình Supabase! Vui lòng nhấn nút "Cài đặt Supabase" để kết nối dự án của bạn.');
+      throw new Error('Chưa cấu hình Supabase! Vui lòng cấu hình VITE_SUPABASE_URL và VITE_SUPABASE_ANON_KEY.');
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -252,28 +276,40 @@ export const authService = {
     }
     if (!supabase) return;
 
-    const { data, error } = await supabase
-      .from('profiles')
+    let res = await supabase
+      .from('hl_profiles')
       .update({ role: newRole })
       .eq('id', userId)
       .select();
 
-    if (error) throw error;
-    return data;
+    if (res.error) {
+      res = await supabase
+        .from('profiles')
+        .update({ role: newRole })
+        .eq('id', userId)
+        .select();
+    }
+
+    if (res.error) throw res.error;
+    return res.data;
   },
 
-  // Lấy toàn bộ người dùng từ bảng `profiles` (Dành cho Admin Dashboard)
+  // Lấy toàn bộ người dùng từ bảng `hl_profiles` hoặc `profiles` (Dành cho Admin Dashboard)
   async getAllUsers() {
     if (!supabase) return [];
-    const { data, error } = await supabase
-      .from('profiles')
+    let { data, error } = await supabase
+      .from('hl_profiles')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.warn('Lỗi lấy danh sách người dùng:', error);
-      return [];
+    if (error || !data || data.length === 0) {
+      const fallback = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!fallback.error && fallback.data) data = fallback.data;
     }
+
     return data || [];
   },
 
@@ -292,12 +328,20 @@ export const dataService = {
   async getCategories() {
     if (supabase) {
       try {
-        const { data, error } = await supabase
-          .from('categories')
+        let { data, error } = await supabase
+          .from('hl_categories')
           .select('*')
           .order('display_order', { ascending: true });
 
-        if (!error && data && data.length > 0) {
+        if (error || !data || data.length === 0) {
+          const fallback = await supabase
+            .from('categories')
+            .select('*')
+            .order('display_order', { ascending: true });
+          if (!fallback.error && fallback.data) data = fallback.data;
+        }
+
+        if (data && data.length > 0) {
           return data;
         }
       } catch (e) {
@@ -310,8 +354,7 @@ export const dataService = {
   async getMaterials(filters = {}) {
     if (supabase) {
       try {
-        let query = supabase.from('materials').select('*');
-
+        let query = supabase.from('hl_materials').select('*');
         if (filters.category && filters.category !== 'all') {
           query = query.eq('category_id', filters.category);
         }
@@ -319,8 +362,22 @@ export const dataService = {
           query = query.eq('grade_level', filters.age);
         }
 
-        const { data, error } = await query.order('download_count', { ascending: false });
-        if (!error && data && data.length > 0) {
+        let { data, error } = await query.order('download_count', { ascending: false });
+        if (error || !data || data.length === 0) {
+          let fbQuery = supabase.from('materials').select('*');
+          if (filters.category && filters.category !== 'all') {
+            fbQuery = fbQuery.eq('category_id', filters.category);
+          }
+          if (filters.age && filters.age !== 'all') {
+            fbQuery = fbQuery.eq('grade_level', filters.age);
+          }
+          const fbRes = await fbQuery.order('download_count', { ascending: false });
+          if (!fbRes.error && fbRes.data && fbRes.data.length > 0) {
+            data = fbRes.data;
+          }
+        }
+
+        if (data && data.length > 0) {
           return data;
         }
       } catch (e) {
@@ -333,25 +390,40 @@ export const dataService = {
   // Admin thêm học liệu mới vào Supabase
   async createMaterial(materialData) {
     if (!supabase) throw new Error('Chưa kết nối Supabase');
-    const { data, error } = await supabase
-      .from('materials')
+    let res = await supabase
+      .from('hl_materials')
       .insert(materialData)
       .select()
       .single();
 
-    if (error) throw error;
-    return data;
+    if (res.error) {
+      res = await supabase
+        .from('materials')
+        .insert(materialData)
+        .select()
+        .single();
+    }
+
+    if (res.error) throw res.error;
+    return res.data;
   },
 
   // Admin xóa học liệu khỏi Supabase
   async deleteMaterial(materialId) {
     if (!supabase) throw new Error('Chưa kết nối Supabase');
-    const { error } = await supabase
-      .from('materials')
+    let res = await supabase
+      .from('hl_materials')
       .delete()
       .eq('id', materialId);
 
-    if (error) throw error;
+    if (res.error) {
+      res = await supabase
+        .from('materials')
+        .delete()
+        .eq('id', materialId);
+    }
+
+    if (res.error) throw res.error;
     return true;
   },
 
@@ -360,12 +432,10 @@ export const dataService = {
     if (supabase) {
       try {
         const user = authService.getUser();
-        await supabase.from('download_logs').insert({
+        await supabase.from('hl_download_logs').insert({
           user_id: user.id || null,
           material_id: materialId
         });
-        // Tăng count trong bảng materials
-        await supabase.rpc('increment_download_count', { mat_id: materialId });
       } catch (e) {
         // ignore
       }
@@ -377,8 +447,8 @@ export const dataService = {
     if (!supabase) return { success: true, orderId: 'ORD-' + Date.now() };
 
     const user = authService.getUser();
-    const { data: order, error } = await supabase
-      .from('orders')
+    let { data: order, error } = await supabase
+      .from('hl_orders')
       .insert({
         user_id: user.id,
         total_amount: orderPayload.total,
@@ -391,20 +461,41 @@ export const dataService = {
       .select()
       .single();
 
+    let targetItemTable = 'hl_order_items';
+    if (error) {
+      // fallback
+      const fb = await supabase
+        .from('orders')
+        .insert({
+          user_id: user.id,
+          total_amount: orderPayload.total,
+          discount_amount: orderPayload.discount,
+          final_amount: orderPayload.finalTotal,
+          discount_code: orderPayload.code || null,
+          payment_method: 'vietqr',
+          status: 'completed'
+        })
+        .select()
+        .single();
+      order = fb.data;
+      error = fb.error;
+      targetItemTable = 'order_items';
+    }
+
     if (error) throw error;
 
     // Lưu từng món trong order_items
-    if (items && items.length > 0) {
+    if (items && items.length > 0 && order) {
       const orderItems = items.map(i => ({
         order_id: order.id,
         material_id: i.id,
         price: i.price,
         quantity: i.quantity
       }));
-      await supabase.from('order_items').insert(orderItems);
+      await supabase.from(targetItemTable).insert(orderItems);
     }
 
-    return { success: true, orderId: order.id };
+    return { success: true, orderId: order?.id || 'ORD-' + Date.now() };
   }
 };
 

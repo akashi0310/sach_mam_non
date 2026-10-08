@@ -2,6 +2,8 @@
 
 Dự án Landing Page và Nền tảng học liệu giáo dục mầm non chất lượng cao, kết hợp thẩm mỹ từ bản thiết kế mẫu và kiến trúc tương tác từ **[Education.com](https://www.education.com/)**, tích hợp hệ thống phân quyền vai trò người dùng đa tầng với **Supabase (RBAC - Role-Based Access Control)**.
 
+**🌐 Website trực tuyến (Netlify):** [https://sach-mam-non.netlify.app/](https://sach-mam-non.netlify.app/)
+
 ---
 
 ## 🌟 1. Điểm nổi bật & Tính năng chính
